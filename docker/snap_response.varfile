@@ -1,0 +1,5 @@
+sys.adminRights$Boolean=false
+sys.languageId=en
+executeLauncherAction$Boolean=false
+sys.installationDir=/opt/snap
+updateCheck$Boolean=false

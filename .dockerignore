@@ -1,0 +1,15 @@
+# Exclure les gros fichiers du build context
+results/
+data/sentinel/
+*.zip
+*.pptx
+*.md
+platform/results/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.log
+CCIP_backup_*
+platform/results/
+platform/**/*.tif
+platform/**/*.shp

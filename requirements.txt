@@ -1,0 +1,13 @@
+# CCIP – Python dependencies
+# NOTE: GDAL, numpy and scipy are installed via apt (python3-gdal, python3-numpy,
+# python3-scipy) so they are NOT listed here. Listing them here would cause pip
+# to try to compile from source and conflict with the system packages.
+
+streamlit==1.50.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+altair>=5.0.0
+numpy>=1.24.0,<2.0.0
+jsonschema>=4.0.0
+referencing>=0.30.0
+rpds-py>=0.10.0

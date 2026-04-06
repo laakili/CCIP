@@ -1,0 +1,31 @@
+# Images Docker exportées
+*.tar.gz
+*.tar
+
+# Résultats de traitement
+results/
+data/sentinel/
+data/gadm/
+
+# Tuiles DEM (gros fichiers binaires)
+snap_dem/
+
+# SNAP installer (trop lourd)
+docker/snap_installer.sh
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+
+# Fichiers lourds
+*.zip
+*.hgt

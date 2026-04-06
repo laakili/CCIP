@@ -1,0 +1,14 @@
+services:
+  ccip:
+    build:
+      context: .
+    image: ccip:latest
+    container_name: ccip
+    ports:
+      - "8503:8501"
+    volumes:
+      - ./results:/app/results          # résultats persistants
+      - ./data/sentinel:/app/data/sentinel  # images Sentinel-1 à analyser
+    restart: unless-stopped
+    mem_limit: 16g
+    shm_size: 2g
