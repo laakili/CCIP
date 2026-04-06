@@ -1,0 +1,2 @@
+# CCIP
+Crisis Intelligence platform
