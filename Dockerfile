@@ -1,12 +1,12 @@
 # ============================================================
 # CCIP – Crisis Intelligence Platform  (image autonome)
 # Ubuntu 22.04 + OpenJDK 17 + ESA SNAP 13 Linux + GDAL 3
-# Aucun montage host requis — tout est dans l'image
+# Build 100 % automatique — aucun fichier à fournir manuellement
 # ============================================================
 FROM --platform=linux/amd64 ubuntu:22.04
 
 LABEL maintainer="CRTS / Innodation" \
-      version="2.0.0" \
+      version="2.1.0" \
       description="CCIP – image autonome, prête pour tout serveur Linux"
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -37,16 +37,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
     && rm -rf /var/lib/apt/lists/*
 
-# ── 2. ESA SNAP 13 (Linux natif) ─────────────────────────────
-# Placer l'installateur dans docker/snap_installer.sh avant de builder
-# Télécharger depuis : https://step.esa.int/main/download/snap-download/
-# → Unix (64-bit) → esa-snap_all_unix_*.sh
+# ── 2. ESA SNAP 13 — téléchargement automatique depuis ESA ───
+# Aucun fichier à fournir manuellement
 COPY docker/snap_response.varfile /tmp/snap_response.varfile
-COPY docker/snap_installer.sh /tmp/snap-installer.sh
-RUN chmod +x /tmp/snap-installer.sh \
-    && /tmp/snap-installer.sh -q -varfile /tmp/snap_response.varfile \
-    && rm /tmp/snap-installer.sh \
-    && echo "SNAP installé : $(/opt/snap/bin/gpt --version 2>&1 | head -1)"
+RUN echo ">>> Téléchargement ESA SNAP 13 (~1 Go) …" && \
+    wget -q --show-progress \
+        "https://download.esa.int/step/snap/13.0/installers/esa-snap_all_unix_13_0_0.sh" \
+        -O /tmp/snap-installer.sh && \
+    chmod +x /tmp/snap-installer.sh && \
+    echo ">>> Installation SNAP …" && \
+    /tmp/snap-installer.sh -q -varfile /tmp/snap_response.varfile && \
+    rm /tmp/snap-installer.sh && \
+    echo ">>> SNAP OK : $(/opt/snap/bin/gpt --version 2>&1 | head -1)"
 
 # ── 3. Packages Python ────────────────────────────────────────
 COPY requirements.txt /tmp/requirements.txt
@@ -56,27 +58,40 @@ RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 WORKDIR /app
 COPY platform/ /app/platform/
 
-# ── 4b. Vigilance DMN fixtures (fallback si API DMN inaccessible) ──────────
-# 2_Veille.py les cherche à :
-#   /app/frontend/src/features/vigilance-dmn/mocks/vigilances.fixtures.json
+# ── 4b. Vigilance DMN fixtures (fallback offline) ────────────
 RUN mkdir -p /app/frontend/src/features/vigilance-dmn/mocks
 COPY frontend/src/features/vigilance-dmn/mocks/vigilances.fixtures.json \
      /app/frontend/src/features/vigilance-dmn/mocks/vigilances.fixtures.json
 
-# ── 5. GADM Maroc ─────────────────────────────────────────────
-RUN mkdir -p /app/data/gadm
-COPY data/gadm/ /app/data/gadm/
+# ── 5. GADM Maroc — téléchargement automatique depuis GADM.org
+# Télécharge le shapefile officiel niveau 4 (communes) du Maroc
+RUN mkdir -p /app/data/gadm && \
+    echo ">>> Téléchargement GADM Maroc niveau 4 …" && \
+    wget -q "https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_MAR_shp.zip" \
+         -O /tmp/gadm_mar.zip && \
+    unzip -j /tmp/gadm_mar.zip "gadm41_MAR_4.*" -d /app/data/gadm/ && \
+    rm /tmp/gadm_mar.zip && \
+    echo ">>> GADM OK :" && ls /app/data/gadm/
 
-# ── 6. Tuiles SRTM DEM ────────────────────────────────────────
-COPY snap_dem/ /tmp/srtm_tiles/
+# ── 6. Tuiles SRTM DEM — téléchargement depuis serveur ESA/SNAP
+# Couvre le Maroc : latitudes 33-36 N, longitudes 5-9 W
 RUN mkdir -p "/root/.snap/auxdata/dem/SRTM 1Sec HGT" && \
-    mv /tmp/srtm_tiles/* "/root/.snap/auxdata/dem/SRTM 1Sec HGT/" && \
-    rmdir /tmp/srtm_tiles
+    echo ">>> Téléchargement tuiles SRTM 1\" (zone Maroc) …" && \
+    for LAT in 33 34 35 36; do \
+      for LON in 005 006 007 008 009; do \
+        TILE="N${LAT}W${LON}.SRTMGL1.hgt.zip"; \
+        wget -q \
+          "http://step.esa.int/auxdata/dem/SRTM%201Sec%20HGT/${TILE}" \
+          -O "/root/.snap/auxdata/dem/SRTM 1Sec HGT/${TILE}" \
+          && echo "  ✓ ${TILE}" \
+          || echo "  ⚠ ${TILE} indisponible (SNAP le téléchargera au runtime)"; \
+      done; \
+    done
 
 # ── 7. Résultats ──────────────────────────────────────────────
-RUN mkdir -p /app/results
+RUN mkdir -p /app/results /app/data/sentinel
 
-# ── 8. Entrypoint ─────────────────────────────────────────────
+# ── 8. Entrypoint + nginx ─────────────────────────────────────
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 COPY docker/nginx.conf /etc/nginx/sites-enabled/ccip

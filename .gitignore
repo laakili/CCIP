@@ -2,15 +2,14 @@
 *.tar.gz
 *.tar
 
-# Résultats de traitement
+# Résultats de traitement (générés au runtime)
 results/
 data/sentinel/
-data/gadm/
 
-# Tuiles DEM (gros fichiers binaires)
+# Tuiles DEM — plus nécessaires, téléchargées automatiquement au build
 snap_dem/
 
-# SNAP installer (trop lourd)
+# SNAP installer — plus nécessaire, téléchargé automatiquement au build
 docker/snap_installer.sh
 
 # Python
@@ -25,7 +24,3 @@ __pycache__/
 
 # Logs
 *.log
-
-# Fichiers lourds
-*.zip
-*.hgt
