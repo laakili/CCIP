@@ -427,6 +427,10 @@ html, body {{ background: #020b18; overflow-x: hidden; font-family: 'Inter', san
     <span class="nav-crisis-item disabled">🌪️ Tempête</span>
     <span class="nav-crisis-item disabled">🏜️ Sécheresse</span>
   </div>
+  <div class="nav-sep"></div>
+  <a class="nav-crisis-item" href="/Veille" target="_top" style="border-color:rgba(124,77,255,0.3);color:#b39ddb;">
+    🛰️ Veille &amp; IA
+  </a>
   <div class="nav-right">
     <div class="nav-status">
       <div class="nav-status-dot"></div>

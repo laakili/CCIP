@@ -76,10 +76,10 @@ class FloodPipeline:
         try:
             # TP1 / TP2 : prétraitement SNAP
             if self.p.get("image_before") and self.p.get("image_after"):
-                job.log("Mode AVANT/APRÈS détecté → TP1 (différence d'amplitude)")
+                job.log("Mode AVANT/APRÈS détecté → différence d'amplitude")
                 self._run_tp1()
             elif self.p.get("image_after"):
-                job.log("Mode IMAGE UNIQUE détecté → TP2 (seuillage VH)")
+                job.log("Mode IMAGE UNIQUE détecté → seuillage VH")
                 self._run_tp2()
             else:
                 raise ValueError("Au moins une image Sentinel-1 est requise")
@@ -114,7 +114,7 @@ class FloodPipeline:
     # ------------------------------------------------------------------
     def _run_tp2(self):
         job = self.job
-        job.log("── TP2: Workflow SNAP image unique ──")
+        job.log("── Workflow SNAP image unique ──")
 
         p        = self.p
         img      = p["image_after"]
@@ -150,7 +150,7 @@ class FloodPipeline:
     # ------------------------------------------------------------------
     def _run_tp1(self):
         job = self.job
-        job.log("── TP1: Workflow SNAP avant/après ──")
+        job.log("── Workflow SNAP avant/après ──")
 
         p       = self.p
         aoi     = p.get("aoi", DEFAULT_PARAMS["aoi"])
@@ -198,7 +198,7 @@ class FloodPipeline:
     # ------------------------------------------------------------------
     def _run_tp3(self):
         job = self.job
-        job.log("── TP3: Vectorisation + Statistiques ──")
+        job.log("── Vectorisation + Statistiques ──")
 
         mask_water  = job.results.get("mask_water")
         if not mask_water or not os.path.exists(mask_water):

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "DMN-2026-LIVE-01",
+    "niveau": "ORANGE",
+    "phenomene": "ORAGE",
+    "zones": [
+      "Tanger-Tétouan-Al Hoceïma",
+      "Oriental",
+      "Fès-Meknès",
+      "Rabat-Salé-Kénitra",
+      "Béni Mellal-Khénifra"
+    ],
+    "debut": "2026-04-28T15:00:00Z",
+    "fin":   "2026-04-29T06:00:00Z",
+    "cumul_prevu_mm": 40,
+    "vitesse_vent_kmh": null,
+    "temperature_max": null,
+    "source": "DMN",
+    "bulletin_url": "https://vigilance.marocmeteo.ma/?q=fr/meteo/vigimet/generale",
+    "emis_le": "2026-04-28T13:01:00Z",
+    "resume": "Averses orageuses localement fortes sur le nord, le Rif et le couloir Fès-Meknès. Cumuls attendus entre 30 et 40 mm. Provinces concernées : Tétouan, Chefchaouen, Al Hoceïma, Driouch, Guercif, El Hajeb, Taounate, Taza, Méknès, Ifrane, Khénifra, Boulemane, Fès, Séfrou, Moulay Yacoub, Sidi Kacem, Sidi Slimane, Khémisset."
+  },
+  {
+    "id": "DMN-2026-LIVE-02",
+    "niveau": "JAUNE",
+    "phenomene": "PLUIES",
+    "zones": [
+      "Tanger-Tétouan-Al Hoceïma",
+      "Oriental",
+      "Béni Mellal-Khénifra",
+      "Marrakech-Safi"
+    ],
+    "debut": "2026-04-28T15:00:00Z",
+    "fin":   "2026-04-29T06:00:00Z",
+    "cumul_prevu_mm": 15,
+    "vitesse_vent_kmh": null,
+    "temperature_max": null,
+    "source": "DMN",
+    "bulletin_url": "https://vigilance.marocmeteo.ma/?q=fr/meteo/vigimet/generale",
+    "emis_le": "2026-04-28T13:01:00Z",
+    "resume": "Averses éparses sur plusieurs régions. Cumuls prévus entre 10 et 15 mm. Provinces touchées : Tanger-Assilah, Larache, Fahs-Anjra, M'Diq-Fnidek, Nador, Khouribga, Azilal, Béni Mellal, Al Haouz, Chichaoua."
+  },
+  {
+    "id": "DMN-2026-LIVE-03",
+    "niveau": "JAUNE",
+    "phenomene": "CHALEUR",
+    "zones": [
+      "Drâa-Tafilalet",
+      "Souss-Massa",
+      "Dakhla-Oued Ed-Dahab"
+    ],
+    "debut": "2026-04-28T11:00:00Z",
+    "fin":   "2026-04-30T18:00:00Z",
+    "cumul_prevu_mm": null,
+    "vitesse_vent_kmh": null,
+    "temperature_max": 34,
+    "source": "DMN",
+    "bulletin_url": "https://vigilance.marocmeteo.ma/?q=fr/meteo/vigimet/generale",
+    "emis_le": "2026-04-28T13:01:00Z",
+    "resume": "Épisode de chaleur persistant au sud et au pré-saharien. Températures maximales attendues entre 30 et 34°C. Provinces concernées : Errachidia, Zagora, Tata, Oued Ed-Dahab, Aousserd."
+  },
+  {
+    "id": "DMN-2026-LIVE-04",
+    "niveau": "JAUNE",
+    "phenomene": "VENT",
+    "zones": [
+      "Oriental",
+      "Drâa-Tafilalet",
+      "Souss-Massa",
+      "Guelmim-Oued Noun"
+    ],
+    "debut": "2026-04-28T15:00:00Z",
+    "fin":   "2026-04-28T21:00:00Z",
+    "cumul_prevu_mm": null,
+    "vitesse_vent_kmh": 70,
+    "temperature_max": null,
+    "source": "DMN",
+    "bulletin_url": "https://vigilance.marocmeteo.ma/?q=fr/meteo/vigimet/generale",
+    "emis_le": "2026-04-28T13:01:00Z",
+    "resume": "Vents forts de secteur est (chergui) sur les régions sud et pré-sahariennes. Rafales pouvant atteindre 60 à 70 km/h. Provinces : Guelmim, Tata, Figuig, Errachidia, Zagora, Assa-Zag."
+  }
+]

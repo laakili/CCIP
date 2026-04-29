@@ -1,6 +1,6 @@
 """
 CCIP — Module Gestion de Crise Inondation
-Traitement SAR Sentinel-1 automatisé : TP1 + TP2 + TP3
+Traitement SAR Sentinel-1 automatisé
 """
 
 import os, sys, json, uuid, threading, time, datetime, zipfile, io, base64
@@ -331,6 +331,10 @@ st.markdown(f"""
     <span class="nav-crisis-item nav-disabled">🌪️ Tempête</span>
     <span class="nav-crisis-item nav-disabled">🏜️ Sécheresse</span>
   </div>
+  <div class="nav-sep" style="width:1px;height:28px;background:rgba(33,150,243,0.2);margin:0 14px;"></div>
+  <a class="nav-crisis-item" href="/Veille" target="_self" style="border-color:rgba(124,77,255,0.3);color:#b39ddb;">
+    🛰️ Veille &amp; IA
+  </a>
   <div class="nav-right">
     <div class="nav-status">
       <div class="nav-status-dot"></div>
@@ -368,7 +372,7 @@ with st.sidebar:
 
     mode = st.radio(
         "Mode de détection",
-        ["🌊  Image unique (TP2)", "📡  Avant / Après (TP1)"],
+        ["🌊  Image unique", "📡  Avant / Après"],
         key="mode"
     )
     is_diff = "Avant" in mode
@@ -488,10 +492,10 @@ with st.sidebar:
 
     with st.expander("⚙️ Paramètres avancés"):
         pol      = st.selectbox("Polarisation", ["VH", "VV"])
-        seuil_db = st.slider("Seuil absolu TP2 (dB)", -40, -10, -26)
-        st.caption("TP2 — Eau typique : -30 à -20 dB")
-        seuil_diff_db = st.slider("Seuil différentiel TP1 (dB)", 1, 10, 3)
-        st.caption("TP1 — Différence avant−après : 3 dB standard SAR")
+        seuil_db = st.slider("Seuil absolu détection eau (dB)", -40, -10, -26)
+        st.caption("Eau typique : -30 à -20 dB")
+        seuil_diff_db = st.slider("Seuil différentiel avant/après (dB)", 1, 10, 3)
+        st.caption("Différence avant−après : 3 dB standard SAR")
         px       = st.selectbox("Résolution (m)", [10, 20, 30])
         dem      = st.selectbox("DEM", ["SRTM 1Sec HGT", "SRTM 3Sec", "Copernicus 30m Global DEM"])
         area_min = st.number_input("Surface min polygone (ha)", value=0.5, min_value=0.1, step=0.1)
@@ -511,7 +515,7 @@ with st.sidebar:
         ("8","Vectorisation","gdal_polygonize"),
         ("9","Statistiques","Par commune/province"),
     ]
-    steps_tp1 = [("★","TP1","Idem + différence avant/après")] + steps_tp2[:-3]
+    steps_tp1 = [("★","Avant/Après","Idem + différence avant/après")] + steps_tp2[:-3]
 
     with st.expander("📋 Pipeline de traitement", expanded=False):
         for num, lbl, detail in (steps_tp1 if is_diff else steps_tp2):
@@ -597,7 +601,7 @@ with tab_active:
         # En-tête
         h1, h2, h3, h4 = st.columns([4, 1, 1, 1])
         with h1:
-            mode_lbl = "Avant/Après (TP1)" if job.params.get("image_before") else "Image unique (TP2)"
+            mode_lbl = "Avant/Après" if job.params.get("image_before") else "Image unique"
             st.markdown(f"**Job** `{job.id}` &nbsp;·&nbsp; {mode_lbl} &nbsp; "
                         + status_badge(job.status), unsafe_allow_html=True)
         with h2:
@@ -930,7 +934,7 @@ with tab_doc:
     st.markdown("""
 ## Pipeline de traitement automatisé Sentinel-1
 
-### TP1 — Différence d'amplitude (mode Avant/Après)
+### Différence d'amplitude (mode Avant/Après)
 | # | Étape | Opérateur SNAP | Paramètre |
 |---|-------|----------------|-----------|
 | 1 | Orbite | Apply Orbit File | Sentinel Precise Auto Download |
@@ -944,8 +948,8 @@ with tab_doc:
 
 ---
 
-### TP2 — Seuillage VH (mode Image unique)
-Étapes 1 → 6 identiques à TP1, puis :
+### Seuillage VH (mode Image unique)
+Étapes 1 → 6 identiques au mode Avant/Après, puis :
 
 | # | Étape | Outil | Résultat |
 |---|-------|-------|----------|
@@ -954,7 +958,7 @@ with tab_doc:
 
 ---
 
-### TP3 — Vectorisation + Statistiques (QGIS/GDAL)
+### Vectorisation + Statistiques (QGIS/GDAL)
 | Étape | Outil | Résultat |
 |-------|-------|----------|
 | A. Lissage | Filtre gaussien σ=2 | Suppression bruit résiduel |

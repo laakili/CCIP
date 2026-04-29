@@ -56,6 +56,13 @@ RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 WORKDIR /app
 COPY platform/ /app/platform/
 
+# ── 4b. Vigilance DMN fixtures (fallback si API DMN inaccessible) ──────────
+# 2_Veille.py les cherche à :
+#   /app/frontend/src/features/vigilance-dmn/mocks/vigilances.fixtures.json
+RUN mkdir -p /app/frontend/src/features/vigilance-dmn/mocks
+COPY frontend/src/features/vigilance-dmn/mocks/vigilances.fixtures.json \
+     /app/frontend/src/features/vigilance-dmn/mocks/vigilances.fixtures.json
+
 # ── 5. GADM Maroc ─────────────────────────────────────────────
 RUN mkdir -p /app/data/gadm
 COPY data/gadm/ /app/data/gadm/
