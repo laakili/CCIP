@@ -5,6 +5,7 @@
 # Résultats de traitement (générés au runtime)
 results/
 data/sentinel/
+data/gadm/
 
 # Tuiles DEM — plus nécessaires, téléchargées automatiquement au build
 snap_dem/
