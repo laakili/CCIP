@@ -8,6 +8,7 @@ python3 -m streamlit run "$SCRIPT_DIR/app.py" \
   --server.enableStaticServing true \
   --server.port 8501 \
   --server.headless true \
+  --server.maxUploadSize 4096 \
   --browser.gatherUsageStats false \
   --theme.base dark \
   --theme.primaryColor "#2196f3" \
