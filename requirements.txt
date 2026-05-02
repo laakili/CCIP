@@ -12,9 +12,11 @@ jsonschema>=4.0.0
 referencing>=0.30.0
 rpds-py>=0.10.0
 
-# Page Veille — carte interactive
+# Cartes interactives (Veille + Inondation)
 folium>=0.17.0
 streamlit-folium>=0.22.0
+geopandas>=0.14.0
+pyogrio>=0.7.0
 
 # Page Veille — Assistant IA
 anthropic>=0.40.0
