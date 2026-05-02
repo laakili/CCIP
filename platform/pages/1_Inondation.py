@@ -752,39 +752,53 @@ with tab_results:
                         name="🔵 Zone d'étude",
                     ).add_to(_m)
 
-                # Couche vecteur Shapefile zones inondées (via OGR — déjà disponible)
+                # Couche vecteur Shapefile zones inondées
                 if _zi_shp_map and os.path.exists(_zi_shp_map):
                     try:
-                        from osgeo import ogr, osr
                         import json as _json
 
-                        _ds_shp = ogr.Open(_zi_shp_map)
-                        _lyr = _ds_shp.GetLayer()
-                        _src_srs = _lyr.GetSpatialRef()
-                        _tgt_srs = osr.SpatialReference()
-                        _tgt_srs.ImportFromEPSG(4326)
-                        _tgt_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-                        _trans = osr.CoordinateTransformation(_src_srs, _tgt_srs) if _src_srs else None
-
-                        _features, _min_lon, _max_lon, _min_lat, _max_lat = [], 180, -180, 90, -90
-                        for _feat in _lyr:
-                            _geom = _feat.GetGeometryRef()
-                            if _geom is None:
-                                continue
-                            if _trans:
-                                _geom = _geom.Clone()
-                                _geom.Transform(_trans)
-                            _env = _geom.GetEnvelope()  # (minX, maxX, minY, maxY)
-                            _min_lon = min(_min_lon, _env[0])
-                            _max_lon = max(_max_lon, _env[1])
-                            _min_lat = min(_min_lat, _env[2])
-                            _max_lat = max(_max_lat, _env[3])
-                            _fj = _json.loads(_feat.ExportToJson())
-                            _fj["geometry"] = _json.loads(_geom.ExportToJson())
-                            _features.append(_fj)
-                        _ds_shp = None
+                        # Lecture shapefile : geopandas en priorité, osgeo en fallback
+                        _features = []
+                        _bounds = None
+                        try:
+                            import geopandas as gpd
+                            _gdf = gpd.read_file(_zi_shp_map)
+                            if _gdf.crs and _gdf.crs.to_epsg() != 4326:
+                                _gdf = _gdf.to_crs(epsg=4326)
+                            _features = _json.loads(_gdf.to_json()).get("features", [])
+                            b = _gdf.total_bounds  # [minX, minY, maxX, maxY]
+                            _bounds = [[b[1], b[0]], [b[3], b[2]]]
+                        except ImportError:
+                            from osgeo import ogr, osr
+                            _ds_shp = ogr.Open(_zi_shp_map)
+                            _lyr = _ds_shp.GetLayer()
+                            _src_srs = _lyr.GetSpatialRef()
+                            _tgt_srs = osr.SpatialReference()
+                            _tgt_srs.ImportFromEPSG(4326)
+                            _tgt_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+                            _trans = osr.CoordinateTransformation(_src_srs, _tgt_srs) if _src_srs else None
+                            _min_lon, _max_lon, _min_lat, _max_lat = 180, -180, 90, -90
+                            for _feat in _lyr:
+                                _geom = _feat.GetGeometryRef()
+                                if _geom is None:
+                                    continue
+                                if _trans:
+                                    _geom = _geom.Clone()
+                                    _geom.Transform(_trans)
+                                _env = _geom.GetEnvelope()
+                                _min_lon = min(_min_lon, _env[0]); _max_lon = max(_max_lon, _env[1])
+                                _min_lat = min(_min_lat, _env[2]); _max_lat = max(_max_lat, _env[3])
+                                _fj = _json.loads(_feat.ExportToJson())
+                                _fj["geometry"] = _json.loads(_geom.ExportToJson())
+                                _features.append(_fj)
+                            _ds_shp = None
+                            if _features:
+                                _bounds = [[_min_lat, _min_lon], [_max_lat, _max_lon]]
 
                         if _features:
+                            # Détecter les champs disponibles pour le tooltip
+                            _props = _features[0].get("properties", {}) if _features else {}
+                            _tip_fields = [k for k in _props if k and k.lower() not in ("fid","id","dn")][:3]
                             folium.GeoJson(
                                 {"type": "FeatureCollection", "features": _features},
                                 name="🌊 Zones inondées",
@@ -795,13 +809,11 @@ with tab_results:
                                     "fillOpacity": 0.6,
                                 },
                                 tooltip=folium.GeoJsonTooltip(
-                                    fields=["area_ha"] if any("area_ha" in f.get("properties",{}) for f in _features) else [],
-                                    aliases=["Surface (ha)"],
-                                    sticky=False,
-                                ),
+                                    fields=_tip_fields, sticky=False,
+                                ) if _tip_fields else None,
                             ).add_to(_m)
-                            # Zoom automatique sur les zones inondées
-                            _m.fit_bounds([[_min_lat, _min_lon], [_max_lat, _max_lon]])
+                            if _bounds:
+                                _m.fit_bounds(_bounds)
                     except Exception as _map_err:
                         st.caption(f"⚠️ Couche vecteur indisponible : {_map_err}")
 
