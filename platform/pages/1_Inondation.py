@@ -703,6 +703,113 @@ with tab_results:
 
             st.divider()
 
+            # ── Carte interactive ESRI — Zones inondées ──────────────────
+            try:
+                import folium
+                from streamlit_folium import st_folium
+                _HAS_FOLIUM = True
+            except ImportError:
+                _HAS_FOLIUM = False
+
+            _zi_shp_map = job.results.get("zones_inondees", "")
+            _aoi = job.params.get("aoi", {})
+            _lat_c = (_aoi.get("lat_min", 33.0) + _aoi.get("lat_max", 34.0)) / 2
+            _lon_c = (_aoi.get("lon_min", -7.0) + _aoi.get("lon_max", -6.0)) / 2
+
+            if _HAS_FOLIUM:
+                st.markdown("#### 🗺️ Carte des zones inondées")
+
+                _m = folium.Map(location=[_lat_c, _lon_c], zoom_start=9, tiles=None)
+
+                # Couche ESRI Satellite (par défaut)
+                folium.TileLayer(
+                    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                    attr="Esri World Imagery",
+                    name="🛰️ ESRI Satellite",
+                    overlay=False, control=True,
+                ).add_to(_m)
+
+                # Couche CartoDB Dark
+                folium.TileLayer(
+                    tiles="CartoDB dark_matter",
+                    name="🌑 CartoDB Dark",
+                    overlay=False, control=True,
+                ).add_to(_m)
+
+                # Couche OpenStreetMap
+                folium.TileLayer(
+                    tiles="OpenStreetMap",
+                    name="🗺️ OpenStreetMap",
+                    overlay=False, control=True,
+                ).add_to(_m)
+
+                # Rectangle AOI
+                if _aoi.get("lat_min") is not None:
+                    folium.Rectangle(
+                        bounds=[[_aoi["lat_min"], _aoi["lon_min"]], [_aoi["lat_max"], _aoi["lon_max"]]],
+                        color="#2196f3", weight=2, fill=False,
+                        dash_array="6 4", tooltip="Zone d'étude (AOI)",
+                        name="🔵 Zone d'étude",
+                    ).add_to(_m)
+
+                # Couche vecteur Shapefile zones inondées (via OGR — déjà disponible)
+                if _zi_shp_map and os.path.exists(_zi_shp_map):
+                    try:
+                        from osgeo import ogr, osr
+                        import json as _json
+
+                        _ds_shp = ogr.Open(_zi_shp_map)
+                        _lyr = _ds_shp.GetLayer()
+                        _src_srs = _lyr.GetSpatialRef()
+                        _tgt_srs = osr.SpatialReference()
+                        _tgt_srs.ImportFromEPSG(4326)
+                        _tgt_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+                        _trans = osr.CoordinateTransformation(_src_srs, _tgt_srs) if _src_srs else None
+
+                        _features, _min_lon, _max_lon, _min_lat, _max_lat = [], 180, -180, 90, -90
+                        for _feat in _lyr:
+                            _geom = _feat.GetGeometryRef()
+                            if _geom is None:
+                                continue
+                            if _trans:
+                                _geom = _geom.Clone()
+                                _geom.Transform(_trans)
+                            _env = _geom.GetEnvelope()  # (minX, maxX, minY, maxY)
+                            _min_lon = min(_min_lon, _env[0])
+                            _max_lon = max(_max_lon, _env[1])
+                            _min_lat = min(_min_lat, _env[2])
+                            _max_lat = max(_max_lat, _env[3])
+                            _fj = _json.loads(_feat.ExportToJson())
+                            _fj["geometry"] = _json.loads(_geom.ExportToJson())
+                            _features.append(_fj)
+                        _ds_shp = None
+
+                        if _features:
+                            folium.GeoJson(
+                                {"type": "FeatureCollection", "features": _features},
+                                name="🌊 Zones inondées",
+                                style_function=lambda x: {
+                                    "fillColor": "#1565c0",
+                                    "color":      "#00e5ff",
+                                    "weight":     1.5,
+                                    "fillOpacity": 0.6,
+                                },
+                                tooltip=folium.GeoJsonTooltip(
+                                    fields=["area_ha"] if any("area_ha" in f.get("properties",{}) for f in _features) else [],
+                                    aliases=["Surface (ha)"],
+                                    sticky=False,
+                                ),
+                            ).add_to(_m)
+                            # Zoom automatique sur les zones inondées
+                            _m.fit_bounds([[_min_lat, _min_lon], [_max_lat, _max_lon]])
+                    except Exception as _map_err:
+                        st.caption(f"⚠️ Couche vecteur indisponible : {_map_err}")
+
+                folium.LayerControl(collapsed=False, position="topright").add_to(_m)
+                st_folium(_m, width=None, height=520, returned_objects=[], use_container_width=True)
+
+                st.divider()
+
             # ── Tableau + filtres ────────────────────────────
             if not df_stats.empty:
                 st.markdown("#### Tableau des zones inondées par commune")
