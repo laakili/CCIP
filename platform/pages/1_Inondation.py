@@ -719,6 +719,32 @@ with tab_results:
             if _HAS_FOLIUM:
                 st.markdown("#### 🗺️ Carte des zones inondées")
 
+                # Contrôles style couche zones inondées
+                _sc1, _sc2, _sc3 = st.columns([1, 2, 1])
+                with _sc1:
+                    _zi_color = st.color_picker(
+                        "Couleur zones inondées",
+                        value=st.session_state.get("zi_color", "#1565c0"),
+                        key=f"zi_color_{selected}",
+                    )
+                    st.session_state["zi_color"] = _zi_color
+                with _sc2:
+                    _zi_opacity = st.slider(
+                        "Opacité",
+                        min_value=0.0, max_value=1.0,
+                        value=st.session_state.get("zi_opacity", 0.6),
+                        step=0.05,
+                        key=f"zi_opacity_{selected}",
+                    )
+                    st.session_state["zi_opacity"] = _zi_opacity
+                with _sc3:
+                    _zi_border = st.color_picker(
+                        "Couleur bordure",
+                        value=st.session_state.get("zi_border", "#00e5ff"),
+                        key=f"zi_border_{selected}",
+                    )
+                    st.session_state["zi_border"] = _zi_border
+
                 _m = folium.Map(location=[_lat_c, _lon_c], zoom_start=9, tiles=None)
 
                 # Couche ESRI Satellite (par défaut)
@@ -799,14 +825,16 @@ with tab_results:
                             # Détecter les champs disponibles pour le tooltip
                             _props = _features[0].get("properties", {}) if _features else {}
                             _tip_fields = [k for k in _props if k and k.lower() not in ("fid","id","dn")][:3]
+                            # Capturer les valeurs pour la closure
+                            _fc, _bc, _fo = _zi_color, _zi_border, _zi_opacity
                             folium.GeoJson(
                                 {"type": "FeatureCollection", "features": _features},
                                 name="🌊 Zones inondées",
-                                style_function=lambda x: {
-                                    "fillColor": "#1565c0",
-                                    "color":      "#00e5ff",
-                                    "weight":     1.5,
-                                    "fillOpacity": 0.6,
+                                style_function=lambda x, fc=_fc, bc=_bc, fo=_fo: {
+                                    "fillColor":   fc,
+                                    "color":       bc,
+                                    "weight":      1.5,
+                                    "fillOpacity": fo,
                                 },
                                 tooltip=folium.GeoJsonTooltip(
                                     fields=_tip_fields, sticky=False,
