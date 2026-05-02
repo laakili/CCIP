@@ -937,8 +937,8 @@ with tab_results:
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
                     return buf.getvalue()
-                except Exception:
-                    return None
+                except Exception as _e:
+                    return f"ERR:{_e}"
 
             # ── Rapport HTML ──────────────────────────────────
             rap = job.results.get("rapport","")
@@ -964,10 +964,10 @@ with tab_results:
                     "RGB_composite.tif", "image/tiff", use_container_width=True, key="dl_rgb")
                 with st.expander("👁 Prévisualiser RGB", expanded=True):
                     png = _tif_to_png_bytes(rgb_path)
-                    if png:
+                    if png and not isinstance(png, str):
                         st.image(png, caption="Rouge=avant, Vert/Bleu=après — zones rouges = inondées", use_container_width=True)
                     else:
-                        st.info("Prévisualisation indisponible (GDAL/PIL requis)")
+                        st.warning(f"Prévisualisation indisponible : {png}")
 
             st.divider()
 
@@ -990,10 +990,10 @@ with tab_results:
                         "image/tiff", use_container_width=True, key=f"dl_{key}")
                     with col.expander("👁 Aperçu"):
                         png = _tif_to_png_bytes(p)
-                        if png:
+                        if png and not isinstance(png, str):
                             st.image(png, use_container_width=True)
                         else:
-                            st.caption("Aperçu indisponible")
+                            st.caption(f"Aperçu indisponible : {png}")
 
             st.divider()
 
