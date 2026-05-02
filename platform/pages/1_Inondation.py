@@ -912,6 +912,7 @@ with tab_results:
                         lo, hi = np.percentile(valid, 2), np.percentile(valid, 98)
                         return np.clip((arr - lo) / max(hi - lo, 1e-6) * 255, 0, 255).astype(np.uint8)
 
+                    _read_ok = False
                     try:
                         import rasterio
                         with rasterio.open(tif_path) as ds:
@@ -921,17 +922,28 @@ with tab_results:
                             else:
                                 gray = _stretch(ds.read(1))
                                 rgb = np.stack([gray, gray, gray], axis=-1)
+                        _read_ok = True
                     except ImportError:
-                        from osgeo import gdal
-                        ds = gdal.Open(tif_path)
-                        if ds is None:
-                            return None
-                        nb = ds.RasterCount
-                        if nb >= 3:
-                            rgb = np.stack([_stretch(ds.GetRasterBand(i).ReadAsArray()) for i in (1, 2, 3)], axis=-1)
-                        else:
-                            gray = _stretch(ds.GetRasterBand(1).ReadAsArray())
-                            rgb = np.stack([gray, gray, gray], axis=-1)
+                        pass
+
+                    if not _read_ok:
+                        try:
+                            from osgeo import gdal
+                            ds = gdal.Open(tif_path)
+                            if ds is None:
+                                return "ERR:gdal.Open a retourné None"
+                            nb = ds.RasterCount
+                            if nb >= 3:
+                                rgb = np.stack([_stretch(ds.GetRasterBand(i).ReadAsArray()) for i in (1, 2, 3)], axis=-1)
+                            else:
+                                gray = _stretch(ds.GetRasterBand(1).ReadAsArray())
+                                rgb = np.stack([gray, gray, gray], axis=-1)
+                            _read_ok = True
+                        except ImportError:
+                            return "ERR:rasterio et osgeo.gdal sont absents — lancez : pip install rasterio Pillow"
+
+                    if not _read_ok:
+                        return "ERR:lecture GeoTIFF échouée"
 
                     img = Image.fromarray(rgb)
                     buf = io.BytesIO()
