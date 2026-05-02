@@ -18,5 +18,9 @@ streamlit-folium>=0.22.0
 geopandas>=0.14.0
 pyogrio>=0.7.0
 
+# Aperçus GeoTIFF (rasterio bundlé avec GDAL, Pillow pour PNG)
+rasterio>=1.3.0
+Pillow>=10.0.0
+
 # Page Veille — Assistant IA
 anthropic>=0.40.0

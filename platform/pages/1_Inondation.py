@@ -898,29 +898,41 @@ with tab_results:
                 return f"{s/1e6:.1f} MB" if s>1e6 else f"{s/1e3:.0f} KB"
 
             def _tif_to_png_bytes(tif_path):
-                """Convertit un GeoTIFF en PNG pour prévisualisation."""
+                """Convertit un GeoTIFF en PNG pour prévisualisation.
+                Utilise rasterio (pip) en priorité, osgeo en fallback (Docker)."""
                 try:
-                    from osgeo import gdal
                     import numpy as np
-                    ds = gdal.Open(tif_path)
-                    if ds is None: return None
-                    nb = ds.RasterCount
+                    from PIL import Image
+
                     def _stretch(arr):
                         arr = arr.astype(np.float32)
                         valid = arr[np.isfinite(arr) & (arr > -9000)]
-                        if len(valid) == 0: return np.zeros_like(arr, dtype=np.uint8)
+                        if len(valid) == 0:
+                            return np.zeros_like(arr, dtype=np.uint8)
                         lo, hi = np.percentile(valid, 2), np.percentile(valid, 98)
                         return np.clip((arr - lo) / max(hi - lo, 1e-6) * 255, 0, 255).astype(np.uint8)
-                    if nb >= 3:
-                        r = _stretch(ds.GetRasterBand(1).ReadAsArray())
-                        g = _stretch(ds.GetRasterBand(2).ReadAsArray())
-                        b = _stretch(ds.GetRasterBand(3).ReadAsArray())
-                        rgb = np.stack([r, g, b], axis=-1)
-                    else:
-                        band = ds.GetRasterBand(1).ReadAsArray()
-                        gray = _stretch(band)
-                        rgb = np.stack([gray, gray, gray], axis=-1)
-                    from PIL import Image
+
+                    try:
+                        import rasterio
+                        with rasterio.open(tif_path) as ds:
+                            nb = ds.count
+                            if nb >= 3:
+                                rgb = np.stack([_stretch(ds.read(i)) for i in (1, 2, 3)], axis=-1)
+                            else:
+                                gray = _stretch(ds.read(1))
+                                rgb = np.stack([gray, gray, gray], axis=-1)
+                    except ImportError:
+                        from osgeo import gdal
+                        ds = gdal.Open(tif_path)
+                        if ds is None:
+                            return None
+                        nb = ds.RasterCount
+                        if nb >= 3:
+                            rgb = np.stack([_stretch(ds.GetRasterBand(i).ReadAsArray()) for i in (1, 2, 3)], axis=-1)
+                        else:
+                            gray = _stretch(ds.GetRasterBand(1).ReadAsArray())
+                            rgb = np.stack([gray, gray, gray], axis=-1)
+
                     img = Image.fromarray(rgb)
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
