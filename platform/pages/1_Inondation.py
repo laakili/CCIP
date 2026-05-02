@@ -940,10 +940,17 @@ with tab_results:
                                 rgb = np.stack([gray, gray, gray], axis=-1)
                             _read_ok = True
                         except ImportError:
-                            return "ERR:rasterio et osgeo.gdal sont absents — lancez : pip install rasterio Pillow"
+                            pass
 
+                    # Fallback PIL — Pillow lit les GeoTIFF sans GDAL
                     if not _read_ok:
-                        return "ERR:lecture GeoTIFF échouée"
+                        arr = np.array(Image.open(tif_path))
+                        if arr.ndim == 3 and arr.shape[2] >= 3:
+                            rgb = np.stack([_stretch(arr[:, :, i]) for i in range(3)], axis=-1)
+                        else:
+                            gray = _stretch(arr if arr.ndim == 2 else arr[:, :, 0])
+                            rgb = np.stack([gray, gray, gray], axis=-1)
+                        _read_ok = True
 
                     img = Image.fromarray(rgb)
                     buf = io.BytesIO()
