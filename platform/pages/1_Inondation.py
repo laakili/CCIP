@@ -897,12 +897,12 @@ with tab_results:
                 s = os.path.getsize(p) if os.path.isfile(p) else 0
                 return f"{s/1e6:.1f} MB" if s>1e6 else f"{s/1e3:.0f} KB"
 
-            def _tif_to_png_bytes(tif_path):
-                """Convertit un GeoTIFF en PNG pour prévisualisation.
-                Utilise rasterio (pip) en priorité, osgeo en fallback (Docker)."""
+            def _tif_to_png_bytes(tif_path, max_px=1024):
+                """Convertit un GeoTIFF en PNG sous-échantillonné pour prévisualisation."""
                 try:
                     import numpy as np
                     from PIL import Image
+                    Image.MAX_IMAGE_PIXELS = None  # désactive limite decompression bomb
 
                     def _stretch(arr):
                         arr = arr.astype(np.float32)
@@ -913,38 +913,53 @@ with tab_results:
                         return np.clip((arr - lo) / max(hi - lo, 1e-6) * 255, 0, 255).astype(np.uint8)
 
                     _read_ok = False
+
+                    # rasterio : lecture sous-échantillonnée directement
                     try:
                         import rasterio
+                        from rasterio.enums import Resampling
                         with rasterio.open(tif_path) as ds:
+                            scale = min(1.0, max_px / max(ds.width, ds.height))
+                            oh = max(1, int(ds.height * scale))
+                            ow = max(1, int(ds.width  * scale))
                             nb = ds.count
                             if nb >= 3:
-                                rgb = np.stack([_stretch(ds.read(i)) for i in (1, 2, 3)], axis=-1)
+                                rgb = np.stack([_stretch(ds.read(i, out_shape=(oh, ow),
+                                    resampling=Resampling.nearest)) for i in (1, 2, 3)], axis=-1)
                             else:
-                                gray = _stretch(ds.read(1))
+                                gray = _stretch(ds.read(1, out_shape=(oh, ow),
+                                    resampling=Resampling.nearest))
                                 rgb = np.stack([gray, gray, gray], axis=-1)
                         _read_ok = True
                     except ImportError:
                         pass
 
+                    # osgeo : fallback Docker
                     if not _read_ok:
                         try:
                             from osgeo import gdal
                             ds = gdal.Open(tif_path)
                             if ds is None:
                                 return "ERR:gdal.Open a retourné None"
-                            nb = ds.RasterCount
+                            W, H, nb = ds.RasterXSize, ds.RasterYSize, ds.RasterCount
+                            scale = min(1.0, max_px / max(W, H))
+                            ow, oh = max(1, int(W * scale)), max(1, int(H * scale))
                             if nb >= 3:
-                                rgb = np.stack([_stretch(ds.GetRasterBand(i).ReadAsArray()) for i in (1, 2, 3)], axis=-1)
+                                rgb = np.stack([_stretch(ds.GetRasterBand(i).ReadAsArray(
+                                    buf_xsize=ow, buf_ysize=oh)) for i in (1, 2, 3)], axis=-1)
                             else:
-                                gray = _stretch(ds.GetRasterBand(1).ReadAsArray())
+                                gray = _stretch(ds.GetRasterBand(1).ReadAsArray(
+                                    buf_xsize=ow, buf_ysize=oh))
                                 rgb = np.stack([gray, gray, gray], axis=-1)
                             _read_ok = True
                         except ImportError:
                             pass
 
-                    # Fallback PIL — Pillow lit les GeoTIFF sans GDAL
+                    # PIL : fallback universel avec thumbnail (sous-échantillonnage)
                     if not _read_ok:
-                        arr = np.array(Image.open(tif_path))
+                        img_pil = Image.open(tif_path)
+                        img_pil.thumbnail((max_px, max_px), Image.LANCZOS)
+                        arr = np.array(img_pil)
                         if arr.ndim == 3 and arr.shape[2] >= 3:
                             rgb = np.stack([_stretch(arr[:, :, i]) for i in range(3)], axis=-1)
                         else:
