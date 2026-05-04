@@ -294,7 +294,7 @@ class FloodPipeline:
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
       <pixelSpacingInMeter>{px}</pixelSpacingInMeter>
       <mapProjection>EPSG:{epsg}</mapProjection>
-      <nodataValueAtSea>false</nodataValueAtSea>
+      <nodataValueAtSea>true</nodataValueAtSea>
     </parameters></node>
   <node id="LinearToFromdB"><operator>LinearToFromdB</operator>
     <sources><sourceProduct refid="Terrain-Correction"/></sources>
@@ -352,7 +352,7 @@ class FloodPipeline:
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
       <pixelSpacingInMeter>{px}</pixelSpacingInMeter>
       <mapProjection>EPSG:{epsg}</mapProjection>
-      <nodataValueAtSea>false</nodataValueAtSea>
+      <nodataValueAtSea>true</nodataValueAtSea>
     </parameters></node>
   <node id="LinearToFromdB"><operator>LinearToFromdB</operator>
     <sources><sourceProduct refid="Terrain-Correction"/></sources>
@@ -716,23 +716,44 @@ _zi_src = ogr.Open(zi_shp); _zi_lay = _zi_src.GetLayer()
 _utm_srs = _zi_lay.GetSpatialRef()
 _AREA_MIN_M2 = AREA_MIN * 10000.0  # ha → m²
 
-# Construire masque terrestre Maroc (UnionCascaded des communes GADM → frontière pays)
+# Construire masque terrestre Maroc via enveloppe convexe des communes GADM
+# UnionCascaded sur 1500+ communes est trop lent — on utilise une approche en 2 passes :
+# 1) dissolve en WGS84 via UnionCascaded sur géométries WGS84 (plus rapide sans reprojection)
+# 2) reprojeter le résultat en UTM une seule fois
 _land_geom = None
 if os.path.exists(communes):
     try:
         from osgeo import osr as _osr2
         _wgs = _osr2.SpatialReference(); _wgs.ImportFromEPSG(4326)
         _wgs.SetAxisMappingStrategy(_osr2.OAMS_TRADITIONAL_GIS_ORDER)
-        _tr  = _osr2.CoordinateTransformation(_wgs, _utm_srs)
+        _utm_srs2 = _utm_srs.Clone()
+        _tr  = _osr2.CoordinateTransformation(_wgs, _utm_srs2)
         _cds = ogr.Open(communes); _cly = _cds.GetLayer()
         _multi = ogr.Geometry(ogr.wkbMultiPolygon)
         for _f in _cly:
             _g = _f.GetGeometryRef()
-            if _g:
-                _gc = _g.Clone(); _gc.Transform(_tr); _multi.AddGeometry(_gc)
+            if _g is None: continue
+            _gtype = _g.GetGeometryType()
+            # Normalise en liste de polygones simples
+            _polys = []
+            if _gtype in (ogr.wkbPolygon, ogr.wkbPolygon25D):
+                _polys = [_g]
+            elif _gtype in (ogr.wkbMultiPolygon, ogr.wkbMultiPolygon25D):
+                for _i in range(_g.GetGeometryCount()): _polys.append(_g.GetGeometryRef(_i))
+            for _p in _polys:
+                _pc = _p.Clone()
+                _pc.FlattenTo2D()
+                _multi.AddGeometry(_pc)
+        _n_comm = _multi.GetGeometryCount()
+        # Dissoudre en WGS84 (rapide), puis reprojeter en UTM
+        _land_wgs = _multi.UnionCascaded()
         _cds = None
-        _land_geom = _multi.UnionCascaded()
-        print(f"  Masque terrestre Maroc: OK ({{_multi.GetGeometryCount()}} communes dissous)")
+        if _land_wgs is not None:
+            _land_geom = _land_wgs.Clone()
+            _land_geom.Transform(_tr)
+            print(f"  Masque terrestre Maroc: OK ({{_n_comm}} polygones → frontière dissoute)")
+        else:
+            print("  UnionCascaded a retourné None — filtre mer désactivé")
     except Exception as _em:
         print(f"  Masque terrestre indisponible ({{_em}}) — filtre mer désactivé")
 
