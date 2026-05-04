@@ -3042,103 +3042,159 @@ function ft(btn,h){document.querySelectorAll('.tf-btn').forEach(b=>b.classList.r
 
 # ─────────────────────────────────────────────────────────────
 # TAB 2 — INFO & ACTUALITÉS (flux Maroc + International)
-# ─────────────────────────────────────────────────────────────
-# ── helpers tab2 ─────────────────────────────────────────────
-_TYPE_COLOR = {
-    "meteo":"#2196f3","satellite":"#7c4dff","geo":"#4caf50",
-    "hydro":"#00bcd4","seisme":"#ff9800","crise":"#ef5350",
-    "humanitaire":"#f59e0b","ems":"#7c4dff",
-}
-_TYPE_LABEL = {
-    "meteo":"MÉTÉO","satellite":"SATELLITE","geo":"GÉO",
-    "hydro":"HYDRO","seisme":"SÉISME","crise":"CRISE",
-    "humanitaire":"HUMANIT.","ems":"EMS",
-}
+# ══════════════════════════════════════════════════════════════
+# TAB 2 — MODULES THÉMATIQUES INTERNATIONAUX
+# ══════════════════════════════════════════════════════════════
 
-def _actu_card_html(item):
-    """Génère le HTML d'une carte article — sans badge alerte."""
+# Groupes thématiques : chaque module regroupe des feeds par domaine
+_INTL_MODULES = [
+    {
+        "key":   "satellite",
+        "icon":  "🛰️",
+        "label": "OBSERVATION TERRESTRE & SATELLITES",
+        "desc":  "Images EO, données Sentinel/MODIS/VIIRS, suivi surfaces inondées et feux",
+        "color": "#3b82f6",
+        "feeds": ["NASA-EO", "ESA-EO"],
+    },
+    {
+        "key":   "crise",
+        "icon":  "🚨",
+        "label": "ALERTES MONDIALES & CATASTROPHES",
+        "desc":  "Système mondial d'alerte précoce — séismes, cyclones, inondations, tsunamis",
+        "color": "#ef4444",
+        "feeds": ["GDACS"],
+    },
+    {
+        "key":   "humanitaire",
+        "icon":  "🆘",
+        "label": "HUMANITAIRE & GESTION DE CRISE",
+        "desc":  "Urgences, besoins humanitaires, coordination ONU — focus Maroc et Maghreb",
+        "color": "#f59e0b",
+        "feeds": ["OCHA-MAR"],
+    },
+    {
+        "key":   "meteo",
+        "icon":  "🌐",
+        "label": "MÉTÉO MONDIALE & CLIMATOLOGIE",
+        "desc":  "Rapports OMM, anomalies climatiques, prévisions saisonnières, extrêmes météo",
+        "color": "#06b6d4",
+        "feeds": ["WMO"],
+    },
+    {
+        "key":   "risques",
+        "icon":  "📡",
+        "label": "GESTION DES RISQUES & INFO SPATIALE",
+        "desc":  "Outils spatiaux pour réduction des risques, réponse aux catastrophes, résilience",
+        "color": "#8b5cf6",
+        "feeds": ["UN-SPIDER"],
+    },
+]
+
+def _intl_card(item, group_color):
+    """Carte article enrichie — description longue, contexte source, lien."""
     _e       = _html.escape
-    title_e  = _e(item.get("title",""))
-    source_e = _e(item.get("source",""))
-    date_e   = _e(item.get("date",""))
-    link_url = _e(item.get("link",""))
-    desc_raw = item.get("desc","")[:160]
+    title_e  = _e(item.get("title", ""))
+    source_e = _e(item.get("source", ""))
+    date_e   = _e(item.get("date", ""))
+    link_url = _e(item.get("link", ""))
+    # Description longue (240 chars)
+    desc_raw = item.get("desc", "")[:240]
     desc_e   = _e(desc_raw)
-    color    = item.get("color","#2196f3")
-    icon     = item.get("icon","📰")
-    typ      = item.get("type","")
-    type_col = _TYPE_COLOR.get(typ, "#64748b")
-    type_lbl = _TYPE_LABEL.get(typ, typ.upper()[:6])
-    lire_btn = (f'<a href="{link_url}" target="_blank" style="'
-                f'font-size:0.68em;color:{color};font-family:\'Orbitron\',monospace;'
-                f'letter-spacing:1px;text-decoration:none;opacity:0.8;">LIRE →</a>') if link_url else ""
-    desc_block = (f'<div style="font-size:0.76em;color:rgba(176,210,240,0.45);'
-                  f'line-height:1.45;margin:6px 0 8px;">{desc_e}…</div>') if desc_raw else '<div style="height:8px;"></div>'
+    color    = item.get("color", group_color)
+    icon     = item.get("icon", "📰")
+    # Contexte source depuis FEEDS_INTL
+    feed_key  = item.get("feed_key", "")
+    feed_cfg  = FEEDS_INTL.get(feed_key, {})
+    src_desc  = _e(feed_cfg.get("desc", ""))
+    lire_html = (f'<a href="{link_url}" target="_blank" style="display:inline-flex;'
+                 f'align-items:center;gap:4px;font-size:0.68em;color:{color};'
+                 f'font-family:\'Orbitron\',monospace;letter-spacing:1.5px;'
+                 f'text-decoration:none;border:1px solid {color}50;border-radius:20px;'
+                 f'padding:3px 10px;margin-top:8px;opacity:0.85;">'
+                 f'LIRE L\'ARTICLE &#8594;</a>') if link_url else ""
+    desc_block = (f'<p style="font-size:0.78em;color:rgba(176,210,240,0.5);'
+                  f'line-height:1.5;margin:8px 0 4px 0;">{desc_e}…</p>') if desc_raw else ""
     return f"""
-<div style="background:rgba(8,18,36,0.8);border:1px solid rgba(33,150,243,0.1);
-            border-left:3px solid {color};border-radius:0 10px 10px 0;
-            padding:12px 14px 10px;margin-bottom:10px;">
-  <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;">
-    <span style="font-size:1em;">{icon}</span>
-    <span style="font-family:'Orbitron',monospace;font-size:0.56em;
-                 color:{color};letter-spacing:1.5px;opacity:0.85;">{source_e}</span>
-    <span style="font-size:0.55em;padding:1px 6px;border-radius:6px;
-                 background:rgba(255,255,255,0.04);color:{type_col};
-                 font-family:'Orbitron',monospace;letter-spacing:1px;
-                 border:1px solid {type_col}30;">{type_lbl}</span>
-    <span style="margin-left:auto;font-size:0.63em;color:rgba(144,202,249,0.35);">{date_e}</span>
+<div style="background:rgba(6,14,28,0.85);border:1px solid {color}20;
+            border-top:2px solid {color};border-radius:0 0 10px 10px;
+            padding:14px 16px 12px;margin-bottom:12px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;
+              padding-bottom:8px;border-bottom:1px solid rgba(33,150,243,0.08);">
+    <span style="font-size:1.1em;">{icon}</span>
+    <div style="flex:1;min-width:0;">
+      <div style="font-family:'Orbitron',monospace;font-size:0.58em;
+                  color:{color};letter-spacing:1.5px;opacity:0.9;">{source_e}</div>
+      <div style="font-size:0.62em;color:rgba(144,202,249,0.35);
+                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                  margin-top:1px;">{src_desc}</div>
+    </div>
+    <span style="font-size:0.62em;color:rgba(144,202,249,0.35);
+                 white-space:nowrap;flex-shrink:0;">{date_e}</span>
   </div>
-  <div style="font-size:0.87em;color:#dce8f5;font-weight:500;line-height:1.45;margin-bottom:4px;">
-    {title_e}
-  </div>
+  <div style="font-size:0.9em;color:#e8f0fe;font-weight:600;
+              line-height:1.5;margin-bottom:2px;">{title_e}</div>
   {desc_block}
-  <div style="text-align:right;">{lire_btn}</div>
+  {lire_html}
 </div>"""
 
-def _section_header(label, color):
+def _module_header(mod):
+    c = mod["color"]
     return f"""
-<div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px;">
-  <div style="flex:1;height:1px;background:linear-gradient(90deg,{color}40,transparent);"></div>
-  <span style="font-family:'Orbitron',monospace;font-size:0.6em;color:{color};
-               letter-spacing:3px;white-space:nowrap;">{label}</span>
-  <div style="flex:1;height:1px;background:linear-gradient(270deg,{color}40,transparent);"></div>
+<div style="background:linear-gradient(135deg,{c}12,{c}05);
+            border:1px solid {c}30;border-left:4px solid {c};
+            border-radius:0 12px 12px 0;padding:14px 18px;margin:22px 0 14px;">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span style="font-size:1.4em;">{mod['icon']}</span>
+    <div>
+      <div style="font-family:'Orbitron',monospace;font-size:0.7em;
+                  color:{c};letter-spacing:2px;font-weight:700;">{mod['label']}</div>
+      <div style="font-size:0.74em;color:rgba(176,210,240,0.55);
+                  margin-top:3px;line-height:1.4;">{mod['desc']}</div>
+    </div>
+  </div>
 </div>"""
 
-def _status_pills(feeds_dict, statuses_dict):
-    pills = ""
-    for key, cfg in feeds_dict.items():
-        s   = statuses_dict.get(key, "offline")
-        col = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "rgba(144,202,249,0.2)")
-        pills += (f'<span title="{_html.escape(cfg["desc"])}" style="display:inline-flex;'
-                  f'align-items:center;gap:4px;background:rgba(8,18,36,0.7);'
-                  f'border:1px solid {col}40;border-radius:20px;padding:3px 9px;'
-                  f'margin:0 4px 4px 0;font-size:0.62em;color:{col};'
-                  f'font-family:\'Orbitron\',monospace;letter-spacing:1px;">'
-                  f'<span style="width:5px;height:5px;border-radius:50%;background:{col};'
-                  f'display:inline-block;"></span>{_html.escape(key)}</span>')
-    return f'<div style="margin-bottom:10px;line-height:2;">{pills}</div>'
+def _source_pill(feed_key, status_dict):
+    cfg = FEEDS_INTL.get(feed_key, {})
+    s   = status_dict.get(feed_key, "offline")
+    col = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "rgba(144,202,249,0.2)")
+    lbl = "LIVE" if s=="live" else ("VIDE" if s=="empty" else "HORS LIGNE")
+    return (f'<span style="display:inline-flex;align-items:center;gap:5px;'
+            f'background:rgba(6,14,28,0.9);border:1px solid {col}40;'
+            f'border-radius:20px;padding:4px 11px;margin:0 6px 6px 0;'
+            f'font-size:0.64em;font-family:\'Orbitron\',monospace;">'
+            f'<span style="width:6px;height:6px;border-radius:50%;background:{col};'
+            f'box-shadow:0 0 4px {col};display:inline-block;"></span>'
+            f'<span style="color:rgba(210,230,255,0.8);">{_html.escape(cfg.get("name",""))}</span>'
+            f'<span style="color:{col};letter-spacing:1px;font-size:0.85em;">{lbl}</span>'
+            f'</span>')
 
 # ─────────────────────────────────────────────────────────────
-# TAB 2 — INFO & ACTUALITÉS
+# TAB 2 — INFO & ACTUALITÉS INTERNATIONALES
 # ─────────────────────────────────────────────────────────────
 with tab2:
 
-    # ── Barre de recherche + actualiser ───────────────────────
+    # ── En-tête + barre de recherche ─────────────────────────
+    st.markdown("""
+    <div style="font-family:'Orbitron',monospace;font-size:0.58em;
+                color:rgba(144,202,249,0.4);letter-spacing:3px;margin-bottom:10px;">
+      🌍  VEILLE INTERNATIONALE — NASA · ESA · ONU · WMO · GDACS · OCHA
+    </div>""", unsafe_allow_html=True)
+
     col_kw, col_refresh = st.columns([5, 1])
     with col_kw:
-        t2_kw = st.text_input("", placeholder="🔍  Rechercher dans les actualités…",
+        t2_kw = st.text_input("", placeholder="🔍  Rechercher dans les actualités internationales…",
                               label_visibility="collapsed")
     with col_refresh:
         if st.button("↺  Actualiser", use_container_width=True):
             st.cache_data.clear(); st.rerun()
 
-    # Compteur sources actives
-    n_live_total = (sum(1 for s in _feed_statuses.values() if s=="live") +
-                    sum(1 for s in _intl_statuses.values() if s=="live"))
-    n_total      = len(FEEDS_8) + len(FEEDS_INTL)
+    # Compteur global
+    n_live_intl = sum(1 for s in _intl_statuses.values() if s == "live")
     st.markdown(f"""
-    <div style="font-size:0.72em;color:rgba(144,202,249,0.4);margin-bottom:4px;">
-      <span style="color:#00e676;font-weight:600;">{n_live_total}</span> / {n_total} sources actives
+    <div style="font-size:0.7em;color:rgba(144,202,249,0.35);margin:4px 0 8px;">
+      <span style="color:#00e676;">{n_live_intl}</span> / {len(FEEDS_INTL)} sources actives
+      &nbsp;·&nbsp; Actualisation automatique toutes les 5 min
     </div>""", unsafe_allow_html=True)
 
     def _t2_filter(items):
@@ -3148,38 +3204,32 @@ with tab2:
                                         or kw in it.get("desc","").lower()]
         return items
 
-    # ══ SECTION 1 — MAROC ════════════════════════════════════
-    st.markdown(_section_header("🇲🇦  ACTUALITÉS INSTITUTIONNELLES — MAROC", "#2196f3"),
-                unsafe_allow_html=True)
-    st.markdown(_status_pills(FEEDS_8, _feed_statuses), unsafe_allow_html=True)
+    # ── Rendu par module thématique ───────────────────────────
+    for _mod in _INTL_MODULES:
+        _mod_items = _t2_filter(
+            [it for it in _intl_feed_items if it.get("feed_key","") in _mod["feeds"]]
+        )
+        # En-tête du module
+        st.markdown(_module_header(_mod), unsafe_allow_html=True)
 
-    mar_items = _t2_filter(_all_feed_items)
-    if mar_items:
-        # Grille 2 colonnes
-        col_a, col_b = st.columns(2)
-        for i, item in enumerate(mar_items):
-            with (col_a if i % 2 == 0 else col_b):
-                st.markdown(_actu_card_html(item), unsafe_allow_html=True)
-    else:
-        st.markdown('<div style="color:rgba(144,202,249,0.35);font-size:0.82em;'
-                    'padding:16px 0;">Aucun article disponible pour les sources Maroc.</div>',
+        # Pills de statut des sources du module
+        pills_html = "".join(_source_pill(k, _intl_statuses) for k in _mod["feeds"])
+        st.markdown(f'<div style="margin-bottom:12px;">{pills_html}</div>',
                     unsafe_allow_html=True)
 
-    # ══ SECTION 2 — INTERNATIONAL ════════════════════════════
-    st.markdown(_section_header("🌍  SOURCES INTERNATIONALES — NASA · ESA · ONU · WMO", "#7c4dff"),
-                unsafe_allow_html=True)
-    st.markdown(_status_pills(FEEDS_INTL, _intl_statuses), unsafe_allow_html=True)
+        if not _mod_items:
+            st.markdown(f"""
+            <div style="color:rgba(144,202,249,0.3);font-size:0.78em;
+                        padding:10px 0 6px;font-style:italic;">
+              Aucun article disponible — source hors ligne ou sans contenu récent.
+            </div>""", unsafe_allow_html=True)
+            continue
 
-    intl_items = _t2_filter(_intl_feed_items)
-    if intl_items:
-        col_c, col_d = st.columns(2)
-        for i, item in enumerate(intl_items):
-            with (col_c if i % 2 == 0 else col_d):
-                st.markdown(_actu_card_html(item), unsafe_allow_html=True)
-    else:
-        st.markdown('<div style="color:rgba(144,202,249,0.35);font-size:0.82em;'
-                    'padding:16px 0;">Aucun article disponible pour les sources internationales.</div>',
-                    unsafe_allow_html=True)
+        # Grille 2 colonnes pour les modules avec plusieurs articles
+        col_l, col_r = st.columns(2)
+        for _i, _it in enumerate(_mod_items):
+            with (col_l if _i % 2 == 0 else col_r):
+                st.markdown(_intl_card(_it, _mod["color"]), unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
 # TAB 3 — MÉTÉO & ALERTES
