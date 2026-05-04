@@ -1530,8 +1530,14 @@ def _fetch_meteo(lat=33.9, lon=-6.85):
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
-        f"&daily=precipitation_sum,temperature_2m_max,temperature_2m_min,weathercode"
-        f"&timezone=Africa%2FCasablanca&forecast_days=5"
+        f"&current_weather=true"
+        f"&hourly=temperature_2m,apparent_temperature,precipitation_probability,"
+        f"weathercode,windspeed_10m,winddirection_10m,relativehumidity_2m,"
+        f"visibility,pressure_msl"
+        f"&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,"
+        f"uv_index_max,precipitation_sum,windspeed_10m_max,precipitation_probability_max,"
+        f"winddirection_10m_dominant"
+        f"&timezone=Africa%2FCasablanca&forecast_days=10"
     )
     raw = _fetch_url(url, timeout=8)
     if not raw:
@@ -3257,83 +3263,370 @@ with tab2:
 # TAB 3 — MÉTÉO & ALERTES
 # ─────────────────────────────────────────────────────────────
 with tab3:
-    st.markdown(f'<div class="vtitle">{T["meteo_title"]}</div>', unsafe_allow_html=True)
+    # ── WMO descriptions in French ────────────────────────────
+    WMO_DESC_FR = {
+        0:"Ciel dégagé", 1:"Principalement dégagé", 2:"Partiellement nuageux", 3:"Couvert",
+        45:"Brouillard", 48:"Brouillard givrant",
+        51:"Bruine légère", 53:"Bruine modérée", 55:"Bruine dense",
+        61:"Pluie légère", 63:"Pluie modérée", 65:"Pluie forte",
+        71:"Neige légère", 73:"Neige modérée", 75:"Neige forte",
+        80:"Averses légères", 81:"Averses", 82:"Averses violentes",
+        95:"Orage", 96:"Orage avec grêle", 99:"Orage violent",
+    }
 
-    st.markdown("**Carte de vigilance par région**", unsafe_allow_html=False)
-    vig_cols = st.columns(4)
-    for i, (reg, info) in enumerate(REGIONS_MAR.items()):
-        col = ALERTE_COLOR[info["alerte"]]; lbl = ALERTE_LABEL[info["alerte"]]
-        with vig_cols[i % 4]:
-            st.markdown(f"""
-            <div style="background:rgba(10,22,40,0.8);border:1px solid {col}40;border-left:3px solid {col};
-                        border-radius:8px;padding:8px 10px;margin-bottom:8px;">
-              <div style="font-size:0.65em;font-family:'Orbitron',monospace;color:{col};">{lbl}</div>
-              <div style="font-size:0.78em;color:#e3f2fd;margin-top:2px;">{reg}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.divider()
-    st.markdown("**Prévisions 5 jours — Région sélectionnée**")
-
+    # ── Region selector ───────────────────────────────────────
     region_names = list(REGIONS_MAR.keys())
-    sel_region = st.selectbox("Région", region_names, index=3, label_visibility="collapsed")
+    col_sel, col_ref = st.columns([5, 1])
+    with col_sel:
+        sel_region = st.selectbox("", region_names, index=3,
+                                  label_visibility="collapsed", key="tab3_region")
+    with col_ref:
+        if st.button("↻", key="tab3_refresh", help="Actualiser les données météo"):
+            st.cache_data.clear()
+            st.rerun()
+
     r_info = REGIONS_MAR[sel_region]
 
     @st.cache_data(ttl=3600)
-    def get_meteo(lat, lon):
+    def get_meteo_full(lat, lon):
         return _fetch_meteo(lat, lon)
 
-    with st.spinner("Chargement météo..."):
-        meteo = get_meteo(r_info["lat"], r_info["lon"])
+    with st.spinner("Chargement météo…"):
+        meteo = get_meteo_full(r_info["lat"], r_info["lon"])
 
-    if meteo and "daily" in meteo:
-        d      = meteo["daily"]
-        days   = d.get("time",[])
-        rains  = d.get("precipitation_sum",[])
-        tmax   = d.get("temperature_2m_max",[])
-        tmin   = d.get("temperature_2m_min",[])
-        wcodes = d.get("weathercode",[])
-
-        days_html = ""
-        for i in range(min(5, len(days))):
-            dt  = datetime.date.fromisoformat(days[i])
-            nom = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"][dt.weekday()]
-            ico = WMO_ICON.get(wcodes[i] if i<len(wcodes) else 0, "🌡️")
-            rain= f"{rains[i]:.1f} mm" if i<len(rains) else "—"
-            tx  = f"{tmax[i]:.0f}°"   if i<len(tmax)  else "—"
-            tn  = f"{tmin[i]:.0f}°"   if i<len(tmin)  else "—"
-            days_html += f"""
-            <div class="meteo-day">
-              <div class="meteo-day-name">{nom} {dt.day}/{dt.month}</div>
-              <div class="meteo-day-icon">{ico}</div>
-              <div class="meteo-day-rain">💧 {rain}</div>
-              <div class="meteo-day-temp">{tn} / {tx}</div>
-            </div>"""
-
-        st.markdown(f'<div class="meteo-grid">{days_html}</div>', unsafe_allow_html=True)
-
-        max_rain = max(rains[:5]) if rains else 0
-        seuil_r = st.session_state.get("seuil_rouge", 50)
-        seuil_o = st.session_state.get("seuil_orange", 30)
-        seuil_j = st.session_state.get("seuil_jaune", 15)
-
-        if max_rain >= seuil_r:
-            st.markdown(f'<div class="alerte-bar alerte-rouge">🔴 <strong>VIGILANCE ROUGE</strong> — Précipitations extrêmes prévues : {max_rain:.0f} mm — Risque inondation élevé</div>', unsafe_allow_html=True)
-        elif max_rain >= seuil_o:
-            st.markdown(f'<div class="alerte-bar alerte-orange">🟠 <strong>VIGILANCE ORANGE</strong> — Fortes précipitations prévues : {max_rain:.0f} mm — Surveiller les zones à risque</div>', unsafe_allow_html=True)
-        elif max_rain >= seuil_j:
-            st.markdown(f'<div class="alerte-bar alerte-jaune">🟡 <strong>VIGILANCE JAUNE</strong> — Précipitations modérées : {max_rain:.0f} mm</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="alerte-bar alerte-vert">🟢 <strong>PAS D\'ALERTE</strong> — Précipitations faibles prévues : {max_rain:.1f} mm</div>', unsafe_allow_html=True)
-    else:
+    if not meteo:
         st.warning("Données météo indisponibles. Vérifiez la connexion internet.")
+    else:
+        cw     = meteo.get("current_weather", {})
+        daily  = meteo.get("daily", {})
+        hourly = meteo.get("hourly", {})
 
-    st.divider()
-    with st.expander("⚙️ Configurer les seuils d'alerte précipitations"):
-        c1, c2, c3 = st.columns(3)
-        with c1: st.number_input("🟡 Seuil jaune (mm)",  value=15, min_value=1, key="seuil_jaune")
-        with c2: st.number_input("🟠 Seuil orange (mm)", value=30, min_value=1, key="seuil_orange")
-        with c3: st.number_input("🔴 Seuil rouge (mm)",  value=50, min_value=1, key="seuil_rouge")
+        # ── Current conditions ────────────────────────────────
+        cur_temp  = cw.get("temperature", 0)
+        cur_wcode = cw.get("weathercode", 0)
+        cur_wind  = cw.get("windspeed", 0)
+        cur_ico   = WMO_ICON.get(cur_wcode, "🌡️")
+        cur_desc  = WMO_DESC_FR.get(cur_wcode, "—")
+
+        d_tmax = daily.get("temperature_2m_max", [])
+        d_tmin = daily.get("temperature_2m_min", [])
+        tmax0  = d_tmax[0] if d_tmax else None
+        tmin0  = d_tmin[0] if d_tmin else None
+
+        # ── Find current hour index ───────────────────────────
+        now_str = datetime.datetime.now().strftime("%Y-%m-%dT%H:00")
+        h_times = hourly.get("time", [])
+        try:
+            now_idx = h_times.index(now_str)
+        except ValueError:
+            now_idx = 0
+
+        def _hv(key, default=None):
+            vals = hourly.get(key, [])
+            v = vals[now_idx] if now_idx < len(vals) else default
+            return v if v is not None else default
+
+        cur_feels      = _hv("apparent_temperature")
+        cur_hum        = _hv("relativehumidity_2m")
+        cur_vis        = _hv("visibility")
+        cur_pres       = _hv("pressure_msl")
+        cur_wdir       = _hv("winddirection_10m")
+        cur_precip_prob= _hv("precipitation_probability", 0)
+
+        uv_max  = (daily.get("uv_index_max")  or [None])[0]
+        sunrise = (daily.get("sunrise")        or ["—"])[0]
+        sunset  = (daily.get("sunset")         or ["—"])[0]
+        def _fmt_time(s):
+            try:    return s[11:16]
+            except: return "—"
+        sr_str = _fmt_time(sunrise)
+        ss_str = _fmt_time(sunset)
+
+        vig     = r_info.get("alerte", "vert")
+        vig_col = ALERTE_COLOR[vig]
+        vig_lbl = ALERTE_LABEL[vig]
+
+        # ── HEADER ────────────────────────────────────────────
+        hl_html = ""
+        if tmax0 is not None and tmin0 is not None:
+            hl_html = f"<div class='aw-hl'>↑ {tmax0:.0f}° &nbsp;&nbsp; ↓ {tmin0:.0f}°</div>"
+
+        st.markdown(f"""
+        <style>
+        .aw-header {{
+            background: linear-gradient(160deg,#1b3d62 0%,#0c1e35 100%);
+            border-radius:20px; padding:26px 28px 22px;
+            margin-bottom:14px; position:relative; overflow:hidden;
+        }}
+        .aw-header::before {{
+            content:''; position:absolute; top:0; left:0; right:0; bottom:0;
+            background:radial-gradient(ellipse at 70% 25%,rgba(100,181,246,0.13) 0%,transparent 60%);
+            pointer-events:none;
+        }}
+        .aw-city  {{ font-size:1.55em; font-weight:600; color:#fff; letter-spacing:0.02em; }}
+        .aw-desc  {{ font-size:0.92em; color:rgba(200,225,255,0.7); margin:3px 0 2px; }}
+        .aw-temp  {{ font-size:4.8em; font-weight:200; color:#fff; line-height:1; letter-spacing:-3px; margin:4px 0 2px; }}
+        .aw-hl    {{ font-size:0.88em; color:rgba(200,225,255,0.6); }}
+        .aw-vig   {{ display:inline-block; padding:4px 12px; border-radius:12px; font-size:0.68em;
+                     font-weight:700; font-family:'Orbitron',monospace; letter-spacing:0.06em;
+                     background:rgba(0,0,0,0.35); border:1px solid; margin-top:10px; }}
+        </style>
+        <div class="aw-header">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div class="aw-city">{sel_region}</div>
+              <div class="aw-desc">{cur_ico} {cur_desc}</div>
+              <div class="aw-temp">{cur_temp:.0f}°</div>
+              {hl_html}
+            </div>
+            <div style="text-align:right;padding-top:4px;">
+              <div class="aw-vig" style="color:{vig_col};border-color:{vig_col}50;">
+                VIGILANCE {vig_lbl}
+              </div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── HOURLY STRIP ──────────────────────────────────────
+        h_slice   = slice(now_idx, now_idx + 24)
+        h_temps   = hourly.get("temperature_2m", [])[h_slice]
+        h_wcode   = hourly.get("weathercode", [])[h_slice]
+        h_precip  = hourly.get("precipitation_probability", [])[h_slice]
+
+        hourly_items = ""
+        for i, temp_v in enumerate(h_temps[:24]):
+            t   = h_times[now_idx + i] if (now_idx + i) < len(h_times) else ""
+            lbl = "Maint." if i == 0 else (t[11:16] if len(t) >= 16 else "--")
+            ico = WMO_ICON.get(h_wcode[i] if i < len(h_wcode) else 0, "&#127777;")
+            pp  = h_precip[i] if i < len(h_precip) else 0
+            pp_row = f'<div class="hi-pp">&#128167;{pp}%</div>' if (pp and pp > 20) else '<div class="hi-pp">&nbsp;</div>'
+            bar_bg = f"rgba(100,181,246,{pp/100*0.85:.2f})" if pp else "rgba(100,181,246,0)"
+            hourly_items += (
+                f'<div class="hi">'
+                f'<div class="hi-lbl">{lbl}</div>'
+                f'<div class="hi-ico">{ico}</div>'
+                f'{pp_row}'
+                f'<div class="hi-tmp">{temp_v:.0f}&deg;</div>'
+                f'<div class="hi-bar" style="background:{bar_bg}"></div>'
+                f'</div>'
+            )
+
+        _hourly_page = (
+            '<!DOCTYPE html><html><head><meta charset="utf-8">'
+            '<link rel="preconnect" href="https://fonts.googleapis.com">'
+            '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">'
+            "<style>"
+            "*{box-sizing:border-box;margin:0;padding:0}"
+            "html,body{background:#0d2137;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}"
+            ".wrap{background:rgba(13,33,55,0.97);border:1px solid rgba(100,181,246,0.15);border-radius:16px;padding:12px 8px 10px}"
+            ".ttl{font-size:10px;font-family:'Orbitron',monospace;color:rgba(144,202,249,0.48);letter-spacing:1.5px;padding:0 10px 10px;text-transform:uppercase}"
+            ".strip{display:flex;overflow-x:auto;gap:2px;padding:0 4px;scrollbar-width:thin;scrollbar-color:rgba(100,181,246,0.3) transparent}"
+            ".strip::-webkit-scrollbar{height:4px}"
+            ".strip::-webkit-scrollbar-track{background:transparent}"
+            ".strip::-webkit-scrollbar-thumb{background:rgba(100,181,246,0.3);border-radius:4px}"
+            ".hi{min-width:58px;text-align:center;padding:8px 4px 6px;flex-shrink:0}"
+            ".hi-lbl{font-size:11px;color:rgba(200,225,255,0.5);margin-bottom:5px}"
+            ".hi-ico{font-size:22px;line-height:1.25}"
+            ".hi-pp{font-size:10px;color:#64b5f6;margin:2px 0;height:14px;line-height:14px}"
+            ".hi-tmp{font-size:14px;font-weight:500;color:#e3f2fd;margin-top:3px}"
+            ".hi-bar{height:3px;border-radius:2px;margin-top:5px}"
+            "</style></head><body>"
+            '<div class="wrap">'
+            '<div class="ttl">Pr&eacute;visions horaires</div>'
+            f'<div class="strip">{hourly_items}</div>'
+            "</div></body></html>"
+        )
+        components.html(_hourly_page, height=138, scrolling=False)
+
+        # ── 10-DAY FORECAST ───────────────────────────────────
+        days_data      = daily.get("time", [])
+        d_wcode        = daily.get("weathercode", [])
+        d_precip_prob  = daily.get("precipitation_probability_max", [])
+
+        overall_min = min(d_tmin[:10]) if d_tmin else 0
+        overall_max = max(d_tmax[:10]) if d_tmax else 40
+        temp_range  = max(overall_max - overall_min, 1)
+        FR_DAYS     = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"]
+
+        forecast_rows = ""
+        for i in range(min(10, len(days_data))):
+            dt      = datetime.date.fromisoformat(days_data[i])
+            day_lbl = "Aujourd'hui" if i == 0 else FR_DAYS[dt.weekday()]
+            ico     = WMO_ICON.get(d_wcode[i] if i < len(d_wcode) else 0, "🌡️")
+            tmx     = d_tmax[i] if i < len(d_tmax) else 0
+            tmn     = d_tmin[i] if i < len(d_tmin) else 0
+            pp      = d_precip_prob[i] if (d_precip_prob and i < len(d_precip_prob)) else 0
+
+            bar_left  = (tmn - overall_min) / temp_range * 100
+            bar_width = max((tmx - tmn) / temp_range * 100, 4)
+            pp_cell = (f'<span class="pp">&#128167;{pp}%</span>'
+                       if pp and pp > 20 else '<span class="pp">&nbsp;</span>')
+            sep = "border-bottom:1px solid rgba(100,181,246,0.07);" if i < 9 else ""
+            forecast_rows += (
+                f'<div class="row" style="{sep}">'
+                f'<div class="day">{day_lbl}</div>'
+                f'<div class="ico">{ico}</div>'
+                f'{pp_cell}'
+                f'<div class="bw">'
+                f'<span class="tlo">{tmn:.0f}&deg;</span>'
+                f'<div class="bbg"><div class="bfg" style="left:{bar_left:.1f}%;width:{bar_width:.1f}%"></div></div>'
+                f'<span class="thi">{tmx:.0f}&deg;</span>'
+                f'</div></div>'
+            )
+
+        _fc_css = (
+            "*{box-sizing:border-box;margin:0;padding:0}"
+            "html,body{background:#0d2137;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}"
+            ".wrap{background:rgba(13,33,55,.97);border:1px solid rgba(100,181,246,.15);border-radius:16px;overflow:hidden}"
+            ".ttl{font-size:10px;font-family:'Orbitron',monospace;color:rgba(144,202,249,.48);"
+            "letter-spacing:1.5px;padding:14px 16px 10px;text-transform:uppercase}"
+            ".row{display:flex;align-items:center;padding:10px 16px;gap:10px}"
+            ".day{width:88px;font-size:14px;color:#e3f2fd;white-space:nowrap;flex-shrink:0}"
+            ".ico{font-size:20px;width:28px;text-align:center;flex-shrink:0}"
+            ".pp{font-size:11px;color:#64b5f6;width:38px;text-align:right;flex-shrink:0}"
+            ".bw{flex:1;display:flex;align-items:center;gap:8px}"
+            ".tlo{font-size:13px;color:rgba(200,225,255,.45);width:24px;text-align:right;flex-shrink:0}"
+            ".thi{font-size:13px;color:#e3f2fd;width:24px;flex-shrink:0}"
+            ".bbg{flex:1;height:4px;background:rgba(100,181,246,.14);border-radius:4px;position:relative}"
+            ".bfg{position:absolute;height:100%;background:linear-gradient(90deg,#5bc8ff,#ff9800);border-radius:4px}"
+        )
+        _fc_page = (
+            '<!DOCTYPE html><html><head><meta charset="utf-8">'
+            '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400&display=swap" rel="stylesheet">'
+            f'<style>{_fc_css}</style></head><body>'
+            '<div class="wrap"><div class="ttl">Pr&eacute;visions sur 10 jours</div>'
+            f'{forecast_rows}</div></body></html>'
+        )
+        components.html(_fc_page, height=472, scrolling=False)
+
+        # ── TILES ─────────────────────────────────────────────
+        def _mk_tile(icon, title, value, detail, extra=""):
+            return (
+                '<div class="tile">'
+                + f'<div class="ttl">{icon} {title}</div>'
+                + f'<div class="val">{value}</div>'
+                + f'<div class="det">{detail}</div>'
+                + extra
+                + '</div>'
+            )
+
+        # UV
+        uv_val  = uv_max if uv_max is not None else 0
+        uv_desc = "Faible"
+        uv_col  = "#4caf50"
+        if uv_val >= 11: uv_desc, uv_col = "Extr&ecirc;me",    "#9c27b0"
+        elif uv_val >= 8: uv_desc, uv_col = "Tr&egrave;s &eacute;lev&eacute;", "#ff4545"
+        elif uv_val >= 6: uv_desc, uv_col = "&Eacute;lev&eacute;",      "#ff9800"
+        elif uv_val >= 3: uv_desc, uv_col = "Mod&eacute;r&eacute;",     "#ffeb3b"
+        uv_fill = min(uv_val / 12 * 100, 100)
+        uv_extra = (
+            f'<div class="uv-trk"><div class="uv-dot" style="left:{uv_fill:.0f}%;border-color:{uv_col}"></div></div>'
+            if uv_max is not None else ""
+        )
+
+        # Wind direction
+        def _wdir_label(deg):
+            if deg is None: return "--"
+            dirs = ["N","NE","E","SE","S","SO","O","NO"]
+            return dirs[int((deg + 22.5) / 45) % 8]
+        wdir_lbl = _wdir_label(cur_wdir)
+
+        # Humidity
+        hum_v    = cur_hum if cur_hum is not None else 0
+        hum_desc = ("Confortable" if 40 <= hum_v <= 60
+                    else "Sec" if hum_v < 40 else "Humide")
+        hum_extra = f'<div class="hum-trk"><div class="hum-fill" style="width:{hum_v:.0f}%"></div></div>'
+
+        # Visibility
+        vis_km   = f"{cur_vis/1000:.0f} km" if cur_vis is not None else "--"
+        vis_desc = ("Excellente" if (cur_vis or 0) >= 10000
+                    else "Bonne" if (cur_vis or 0) >= 5000
+                    else "R&eacute;duite" if (cur_vis or 0) >= 1000 else "Mauvaise")
+
+        # Pressure
+        pres_v    = cur_pres if cur_pres is not None else 1013
+        pres_desc = ("Haute pression" if pres_v > 1013
+                     else "Basse pression" if pres_v < 1000 else "Pression normale")
+
+        # Precipitation today
+        prec_today = (daily.get("precipitation_sum") or [0])[0]
+
+        tiles_html = (
+            _mk_tile("&#9728;&#65039;", "INDICE UV",
+                     f"{uv_val:.0f}" if uv_max is not None else "--", uv_desc, uv_extra) +
+            _mk_tile("&#127749;&#65039;", "LEVER / COUCHER", sr_str,
+                     f"Coucher : {ss_str}") +
+            _mk_tile("&#128168;&#65039;", "VENT",
+                     f"{cur_wind:.0f} km/h" if cur_wind else "--",
+                     f"Direction : {wdir_lbl}") +
+            _mk_tile("&#128167;", "PR&Eacute;CIPITATIONS",
+                     f"{prec_today:.1f} mm",
+                     f"Probabilit&eacute; : {cur_precip_prob or 0}%") +
+            _mk_tile("&#127777;&#65039;", "RESSENTI",
+                     f"{cur_feels:.0f}&deg;" if cur_feels is not None else "--",
+                     "Temp&eacute;rature ressentie") +
+            _mk_tile("&#128166;", "HUMIDIT&Eacute;",
+                     f"{hum_v}%" if cur_hum is not None else "--",
+                     hum_desc, hum_extra) +
+            _mk_tile("&#128065;&#65039;", "VISIBILIT&Eacute;", vis_km, vis_desc) +
+            _mk_tile("&#128202;", "PRESSION",
+                     f"{pres_v:.0f} hPa" if cur_pres is not None else "--", pres_desc)
+        )
+
+        _tl_css = (
+            "*{box-sizing:border-box;margin:0;padding:0}"
+            "html,body{background:#0d2137;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}"
+            ".grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:2px}"
+            ".tile{background:rgba(13,33,55,.97);border:1px solid rgba(100,181,246,.13);"
+            "border-radius:16px;padding:16px 18px;min-height:108px}"
+            ".ttl{font-size:10px;font-family:'Orbitron',monospace;color:rgba(144,202,249,.48);"
+            "letter-spacing:1.2px;margin-bottom:6px;text-transform:uppercase}"
+            ".val{font-size:26px;font-weight:300;color:#e3f2fd;line-height:1.1;margin:2px 0}"
+            ".det{font-size:12px;color:rgba(200,225,255,.48);margin-top:4px}"
+            ".uv-trk{margin-top:10px;height:5px;border-radius:3px;position:relative;"
+            "background:linear-gradient(90deg,#4caf50,#ffeb3b,#ff9800,#ff4545,#9c27b0)}"
+            ".uv-dot{position:absolute;top:-4px;transform:translateX(-50%);"
+            "width:13px;height:13px;background:#fff;border-radius:50%;border:2px solid}"
+            ".hum-trk{margin-top:10px;height:5px;border-radius:3px;background:rgba(100,181,246,.15)}"
+            ".hum-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#64b5f6,#0288d1)}"
+        )
+        _tl_page = (
+            '<!DOCTYPE html><html><head><meta charset="utf-8">'
+            '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400&display=swap" rel="stylesheet">'
+            f'<style>{_tl_css}</style></head><body>'
+            f'<div class="grid">{tiles_html}</div>'
+            '</body></html>'
+        )
+        components.html(_tl_page, height=268, scrolling=False)
+
+        # ── VIGILANCE RÉGIONS ─────────────────────────────────
+        st.markdown("""
+        <div style="font-size:0.62em;font-family:'Orbitron',monospace;
+                    color:rgba(144,202,249,0.48);letter-spacing:0.1em;
+                    padding:4px 0 12px;">VIGILANCES PAR RÉGION — MAROC</div>
+        """, unsafe_allow_html=True)
+
+        vig_cols = st.columns(4)
+        for i, (reg, info) in enumerate(REGIONS_MAR.items()):
+            rc   = ALERTE_COLOR[info["alerte"]]
+            rlbl = ALERTE_LABEL[info["alerte"]]
+            with vig_cols[i % 4]:
+                st.markdown(f"""
+                <div style="background:rgba(10,22,40,0.82);border:1px solid {rc}28;
+                            border-left:3px solid {rc};border-radius:8px;
+                            padding:8px 10px;margin-bottom:8px;">
+                  <div style="font-size:0.6em;font-family:'Orbitron',monospace;color:{rc};">{rlbl}</div>
+                  <div style="font-size:0.74em;color:#e3f2fd;margin-top:2px;line-height:1.3;">{reg}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # ── THRESHOLDS ────────────────────────────────────────
+        with st.expander("⚙️ Configurer les seuils d'alerte précipitations"):
+            c1, c2, c3 = st.columns(3)
+            with c1: st.number_input("🟡 Seuil jaune (mm)",  value=15, min_value=1, key="seuil_jaune")
+            with c2: st.number_input("🟠 Seuil orange (mm)", value=30, min_value=1, key="seuil_orange")
+            with c3: st.number_input("🔴 Seuil rouge (mm)",  value=50, min_value=1, key="seuil_rouge")
 
 # ─────────────────────────────────────────────────────────────
 # TAB 4 — ASSISTANT IA
@@ -3341,113 +3634,176 @@ with tab3:
 with tab4:
     st.markdown(f'<div class="vtitle">{T["ia_title"]}</div>', unsafe_allow_html=True)
 
+    # ── Ollama helpers (no extra dependency — pure urllib) ────
+    @st.cache_data(ttl=15, show_spinner=False)
+    def _ollama_list():
+        """Returns list of installed model names, or None if Ollama is unreachable."""
+        try:
+            req = urllib.request.Request(
+                "http://localhost:11434/api/tags",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=3) as r:
+                return [m["name"] for m in json.loads(r.read()).get("models", [])]
+        except Exception:
+            return None
+
+    def _call_ollama(model: str, messages: list, system_prompt: str) -> str:
+        payload = json.dumps({
+            "model": model,
+            "stream": False,
+            "messages": [{"role": "system", "content": system_prompt}] + messages,
+            "options": {"temperature": 0.7, "num_predict": 800},
+        }).encode()
+        req = urllib.request.Request(
+            "http://localhost:11434/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=180) as r:
+            result = json.loads(r.read())
+        return result["message"]["content"]
+
+    def _build_system_prompt() -> str:
+        jobs_ctx = _load_jobs()
+        ctx_lines = []
+        for j in [x for x in jobs_ctx if x.get("status") == "done"][:3]:
+            p = j.get("params", {}); rv = j.get("results", {})
+            mode = "Avant/Après" if p.get("image_before") else "Image unique"
+            ctx_lines.append(
+                f"- Job {j.get('id','')[:8]} ({j.get('created','')[:10]}) : "
+                f"mode={mode}, surface={rv.get('surface_totale_ha','?')} ha, "
+                f"communes={rv.get('n_communes','?')}"
+            )
+        feed_ctx = [f"- [{it['source']}] {it['title']}" for it in _alert_items[:5]]
+        return (
+            "Tu es l'assistant IA de la plateforme CCIP (Crisis Cartography Intelligence Platform) "
+            "du CRTS Maroc. Tu analyses les données de crise inondation issues du traitement SAR Sentinel-1.\n\n"
+            "Derniers traitements :\n" +
+            ("\n".join(ctx_lines) if ctx_lines else "Aucun traitement terminé.") +
+            "\n\nAlertes flux institutionnels (DMN, USGS, Copernicus…) :\n" +
+            ("\n".join(feed_ctx) if feed_ctx else "Aucune alerte active détectée.") +
+            "\n\nRéponds en français, de façon concise et professionnelle, "
+            "adaptée à un service de gestion de crise."
+        )
+
+    # ── Layout ────────────────────────────────────────────────
     col_chat, col_agent = st.columns([3, 2])
 
-    with col_chat:
-        st.markdown("**💬 Chat contextuel**")
-        st.markdown("""
-        <div style="background:rgba(10,22,40,0.6);border:1px solid rgba(33,150,243,0.15);
-                    border-radius:10px;padding:12px 16px;margin-bottom:12px;
-                    font-size:0.82em;color:rgba(144,202,249,0.55);line-height:1.6;">
-          L'assistant a accès aux résultats des traitements CCIP, aux statistiques communes/provinces,
-          et peut analyser la situation de crise en temps réel.<br>
-          Configurez votre clé API Anthropic dans le panneau de droite pour activer le chat.
-        </div>
-        """, unsafe_allow_html=True)
-
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
-
-        for msg in st.session_state.chat_history:
-            if msg["role"] == "user":
-                st.markdown(f'<div class="chat-label-user">VOUS</div><div class="chat-msg-user">{msg["content"]}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="chat-label-ai">🤖 CCIP IA</div><div class="chat-msg-ai">{msg["content"]}</div>', unsafe_allow_html=True)
-
-        with st.form("chat_form", clear_on_submit=True):
-            user_input = st.text_area(
-                "Message",
-                placeholder="Ex: Quelles communes sont affectées ? Résume la dernière analyse...",
-                height=80, label_visibility="collapsed"
-            )
-            send = st.form_submit_button("Envoyer ➤", use_container_width=True)
-
-        if send and user_input.strip():
-            api_key = st.session_state.get("anthropic_key","")
-            if not api_key:
-                st.error("Clé API Anthropic requise. Configurez-la dans le panneau de droite.")
-            else:
-                st.session_state.chat_history.append({"role":"user","content":user_input})
-                jobs_ctx  = _load_jobs()
-                done_ctx  = [j for j in jobs_ctx if j.get("status")=="done"]
-                ctx_lines = []
-                for j in done_ctx[:3]:
-                    p=j.get("params",{}); r=j.get("results",{})
-                    mode="Avant/Après" if p.get("image_before") else "Image unique"
-                    ctx_lines.append(
-                        f"- Job {j.get('id','')[:8]} ({j.get('created','')[:10]}) : "
-                        f"mode={mode}, surface={r.get('surface_totale_ha','?')} ha, communes={r.get('n_communes','?')}"
-                    )
-                # Alertes flux institutionnels dans le contexte
-                feed_ctx = []
-                for it in _alert_items[:5]:
-                    feed_ctx.append(f"- [{it['source']}] {it['title']}")
-                system_prompt = (
-                    "Tu es l'assistant IA de la plateforme CCIP (Crisis Cartography Intelligence Platform) "
-                    "du CRTS Maroc. Tu analyses les données de crise inondation issues du traitement SAR Sentinel-1.\n\n"
-                    "Derniers traitements :\n" + ("\n".join(ctx_lines) if ctx_lines else "Aucun traitement terminé.") +
-                    "\n\nAlertes flux institutionnels (DMN, USGS, Copernicus…) :\n" +
-                    ("\n".join(feed_ctx) if feed_ctx else "Aucune alerte active détectée.") +
-                    "\n\nRéponds en français, de façon concise et professionnelle, adaptée à un service de gestion de crise."
-                )
-                try:
-                    import anthropic
-                    client = anthropic.Anthropic(api_key=api_key)
-                    with st.spinner("Analyse en cours..."):
-                        response = client.messages.create(
-                            model="claude-sonnet-4-6", max_tokens=800,
-                            system=system_prompt,
-                            messages=[{"role":m["role"],"content":m["content"]}
-                                      for m in st.session_state.chat_history]
-                        )
-                    st.session_state.chat_history.append({"role":"assistant","content":response.content[0].text})
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erreur API : {e}")
-
-        if st.session_state.chat_history:
-            if st.button("🗑️ Effacer la conversation"):
-                st.session_state.chat_history = []; st.rerun()
-
-        st.markdown("**Exemples de questions :**")
-        exemples = [
-            "Résume la situation d'inondation actuelle",
-            "Quelles communes ont la plus grande surface inondée ?",
-            "Y a-t-il des alertes sismiques en cours ?",
-            "Rédige un bulletin de crise pour les autorités",
-        ]
-        ec = st.columns(2)
-        for i, ex in enumerate(exemples):
-            if ec[i%2].button(ex, key=f"ex_{i}", use_container_width=True):
-                st.session_state.chat_history.append({"role":"user","content":ex}); st.rerun()
-
+    # ════════════════════════════════════════════════════════
+    # RIGHT PANEL — Configuration
+    # ════════════════════════════════════════════════════════
     with col_agent:
-        st.markdown("**⚙️ Configuration & Agent autonome**")
+        st.markdown("**⚙️ Configuration**")
 
-        api_key_input = st.text_input(
-            "🔑 Clé API Anthropic", type="password",
-            value=st.session_state.get("anthropic_key",""),
-            placeholder="sk-ant-...", help="Obtenez votre clé sur console.anthropic.com"
+        # ── Backend selector ──────────────────────────────
+        _prev_backend = st.session_state.get("ia_backend", "claude")
+        _backend_choice = st.radio(
+            "Moteur IA",
+            ["☁️  Claude (Anthropic)", "🖥️  LLM Local (Ollama)"],
+            index=0 if _prev_backend == "claude" else 1,
+            label_visibility="collapsed",
+            horizontal=True,
+            key="ia_backend_radio",
         )
-        if api_key_input:
-            st.session_state["anthropic_key"] = api_key_input
-            st.success("Clé configurée ✓")
+        st.session_state["ia_backend"] = (
+            "claude" if "Claude" in _backend_choice else "ollama"
+        )
+
+        st.divider()
+
+        if st.session_state["ia_backend"] == "claude":
+            # ── Anthropic ─────────────────────────────────
+            st.markdown("**🔑 Clé API Anthropic**")
+            _key_in = st.text_input(
+                "Clé", type="password",
+                value=st.session_state.get("anthropic_key", ""),
+                placeholder="sk-ant-…",
+                help="console.anthropic.com",
+                label_visibility="collapsed",
+            )
+            if _key_in:
+                st.session_state["anthropic_key"] = _key_in
+                st.success("Clé configurée ✓")
+            st.markdown(
+                '<div style="font-size:0.78em;color:rgba(144,202,249,0.45);margin-top:4px;">'
+                'Modèle : claude-sonnet-4-6</div>',
+                unsafe_allow_html=True,
+            )
+
+        else:
+            # ── Ollama ────────────────────────────────────
+            st.markdown("**🖥️ Ollama — modèle local**")
+            _ol_models = _ollama_list()
+
+            if _ol_models is None:
+                st.error("Ollama hors ligne")
+                st.markdown(
+                    '<div style="font-size:0.78em;color:rgba(144,202,249,0.5);line-height:1.8;">'
+                    'Démarrez le serveur :<br>'
+                    '<code style="color:#90caf9;">ollama serve</code><br><br>'
+                    'Modèles recommandés :<br>'
+                    '<code style="color:#90caf9;">ollama pull mistral</code><br>'
+                    '<code style="color:#90caf9;">ollama pull gemma2</code><br>'
+                    '<code style="color:#90caf9;">ollama pull llama3.2</code><br>'
+                    '<code style="color:#90caf9;">ollama pull phi3</code>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+            elif not _ol_models:
+                st.warning("Ollama actif — aucun modèle installé")
+                st.markdown(
+                    '<div style="font-size:0.78em;color:rgba(144,202,249,0.5);">'
+                    'Installez un modèle :<br>'
+                    '<code style="color:#90caf9;">ollama pull mistral</code>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.success(f"Ollama actif · {len(_ol_models)} modèle(s)")
+
+                _pref = ["mistral","gemma2","llama3.2","llama3","phi3","qwen2.5","deepseek"]
+                def _rank(name):
+                    b = name.split(":")[0]
+                    for i, p in enumerate(_pref):
+                        if p in b: return i
+                    return len(_pref)
+                _sorted = sorted(_ol_models, key=_rank)
+
+                _prev_m = st.session_state.get("ollama_model", _sorted[0])
+                _idx_m  = _sorted.index(_prev_m) if _prev_m in _sorted else 0
+                _sel_m  = st.selectbox(
+                    "Modèle", _sorted, index=_idx_m,
+                    key="ollama_model_select",
+                )
+                st.session_state["ollama_model"] = _sel_m
+
+                _hints = {
+                    "mistral":  "7B · ~4.1 GB RAM",
+                    "gemma2":   "9B · ~5.5 GB RAM",
+                    "llama3.2": "3B · ~2.0 GB RAM",
+                    "llama3":   "8B · ~4.7 GB RAM",
+                    "phi3":     "3.8B · ~2.3 GB RAM",
+                    "qwen2.5":  "7B · ~4.4 GB RAM",
+                    "deepseek": "7B · ~4.1 GB RAM",
+                }
+                _base = _sel_m.split(":")[0]
+                _hint = next((v for k, v in _hints.items() if k in _base), "")
+                if _hint:
+                    st.markdown(
+                        f'<div style="font-size:0.75em;color:rgba(144,202,249,0.4);">{_hint}</div>',
+                        unsafe_allow_html=True,
+                    )
 
         st.divider()
         st.markdown("**🤖 Agent autonome**")
-        st.markdown('<div style="font-size:0.82em;color:rgba(144,202,249,0.5);margin-bottom:12px;">Configurez les règles déclencheur → action</div>', unsafe_allow_html=True)
-
-        for ico, trigger, action, default in [
+        st.markdown(
+            '<div style="font-size:0.82em;color:rgba(144,202,249,0.5);margin-bottom:10px;">'
+            'Règles déclencheur → action</div>',
+            unsafe_allow_html=True,
+        )
+        for _ico, _trig, _act, _def in [
             ("🛰️","Nouvelle image Sentinel-1 disponible","Lancer traitement automatique",False),
             ("📈","Surface inondée augmente de +20%","Envoyer alerte email",False),
             ("☀️","Rapport quotidien 8h00","Générer bulletin de situation",False),
@@ -3455,23 +3811,138 @@ with tab4:
             ("🏔️","Séisme M≥4.5 détecté (USGS)","Activer veille sismique",False),
             ("🔥","Activation EFFIS Maroc","Surveiller risque incendie",False),
         ]:
-            st.toggle(f"{ico} **{trigger}**\n_{action}_", value=default, key=f"rule_{trigger[:12]}")
+            st.toggle(f"{_ico} **{_trig}**\n_{_act}_", value=_def, key=f"rule_{_trig[:12]}")
 
         st.divider()
-        email_notif = st.text_input("📧 Email notifications", placeholder="contact@crts.gov.ma")
+        st.text_input("📧 Email notifications", placeholder="contact@crts.gov.ma")
         if st.button("💾 Sauvegarder configuration", use_container_width=True):
             st.success("Configuration sauvegardée")
 
         st.divider()
         st.markdown("**📊 Contexte actuel**")
-        done_ctx2 = [j for j in _load_jobs() if j.get("status")=="done"]
-        n_live_feeds = sum(1 for s in _feed_statuses.values() if s=="live")
-        st.markdown(f"""
-        <div style="font-size:0.82em;color:rgba(144,202,249,0.55);line-height:2;">
-          • {len(done_ctx2)} traitement(s) disponibles<br>
-          • {n_live_feeds}/{len(FEEDS_8)} flux institutionnels actifs<br>
-          • {len(_alert_items)} alerte(s) détectée(s) dans les flux<br>
-          • Modèle : claude-sonnet-4-6<br>
-          • Pipeline SNAP opérationnel
-        </div>
-        """, unsafe_allow_html=True)
+        _done2      = [j for j in _load_jobs() if j.get("status") == "done"]
+        _nlive      = sum(1 for s in _feed_statuses.values() if s == "live")
+        _cur_model  = (
+            "claude-sonnet-4-6"
+            if st.session_state.get("ia_backend", "claude") == "claude"
+            else st.session_state.get("ollama_model", "—")
+        )
+        st.markdown(
+            f'<div style="font-size:0.82em;color:rgba(144,202,249,0.55);line-height:2;">'
+            f'• {len(_done2)} traitement(s) disponibles<br>'
+            f'• {_nlive}/{len(FEEDS_8)} flux institutionnels actifs<br>'
+            f'• {len(_alert_items)} alerte(s) détectée(s) dans les flux<br>'
+            f'• Modèle : {_cur_model}<br>'
+            f'• Pipeline SNAP opérationnel</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ════════════════════════════════════════════════════════
+    # LEFT PANEL — Chat
+    # ════════════════════════════════════════════════════════
+    with col_chat:
+        _bk   = st.session_state.get("ia_backend", "claude")
+        _blbl = ("Claude (Anthropic)"
+                 if _bk == "claude"
+                 else f"LLM Local · {st.session_state.get('ollama_model', 'Ollama')}")
+        st.markdown(
+            f'**💬 Chat contextuel** — '
+            f'<span style="font-size:0.8em;color:rgba(100,181,246,0.7);">{_blbl}</span>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div style="background:rgba(10,22,40,0.6);border:1px solid rgba(33,150,243,0.15);'
+            'border-radius:10px;padding:12px 16px;margin-bottom:12px;'
+            'font-size:0.82em;color:rgba(144,202,249,0.55);line-height:1.6;">'
+            "L'assistant a accès aux résultats des traitements CCIP, aux statistiques "
+            "communes/provinces, et peut analyser la situation de crise en temps réel.<br>"
+            "Sélectionnez le moteur IA dans le panneau de droite.</div>",
+            unsafe_allow_html=True,
+        )
+
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+
+        for _msg in st.session_state.chat_history:
+            if _msg["role"] == "user":
+                st.markdown(
+                    f'<div class="chat-label-user">VOUS</div>'
+                    f'<div class="chat-msg-user">{_msg["content"]}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div class="chat-label-ai">🤖 CCIP IA</div>'
+                    f'<div class="chat-msg-ai">{_msg["content"]}</div>',
+                    unsafe_allow_html=True,
+                )
+
+        with st.form("chat_form", clear_on_submit=True):
+            user_input = st.text_area(
+                "Message",
+                placeholder="Ex: Quelles communes sont affectées ? Résume la dernière analyse…",
+                height=80, label_visibility="collapsed",
+            )
+            send = st.form_submit_button("Envoyer ➤", use_container_width=True)
+
+        if send and user_input.strip():
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            _sys   = _build_system_prompt()
+            _msgs  = [{"role": m["role"], "content": m["content"]}
+                      for m in st.session_state.chat_history]
+
+            if _bk == "claude":
+                _akey = st.session_state.get("anthropic_key", "")
+                if not _akey:
+                    st.error("Clé API Anthropic requise — configurez-la dans le panneau de droite.")
+                    st.session_state.chat_history.pop()
+                else:
+                    try:
+                        import anthropic as _ant
+                        with st.spinner("Claude analyse…"):
+                            _r = _ant.Anthropic(api_key=_akey).messages.create(
+                                model="claude-sonnet-4-6", max_tokens=800,
+                                system=_sys, messages=_msgs,
+                            )
+                        st.session_state.chat_history.append(
+                            {"role": "assistant", "content": _r.content[0].text}
+                        )
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Erreur API Anthropic : {_e}")
+                        st.session_state.chat_history.pop()
+
+            else:  # ollama
+                _om = st.session_state.get("ollama_model", "")
+                if not _om:
+                    st.error("Sélectionnez un modèle Ollama dans le panneau de droite.")
+                    st.session_state.chat_history.pop()
+                else:
+                    try:
+                        with st.spinner(f"{_om} analyse…"):
+                            _ans = _call_ollama(_om, _msgs, _sys)
+                        st.session_state.chat_history.append(
+                            {"role": "assistant", "content": _ans}
+                        )
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Erreur Ollama : {_e}")
+                        st.session_state.chat_history.pop()
+
+        if st.session_state.chat_history:
+            if st.button("🗑️ Effacer la conversation"):
+                st.session_state.chat_history = []
+                st.rerun()
+
+        st.markdown("**Exemples de questions :**")
+        _exemples = [
+            "Résume la situation d'inondation actuelle",
+            "Quelles communes ont la plus grande surface inondée ?",
+            "Y a-t-il des alertes sismiques en cours ?",
+            "Rédige un bulletin de crise pour les autorités",
+        ]
+        _ec = st.columns(2)
+        for _i, _ex in enumerate(_exemples):
+            if _ec[_i % 2].button(_ex, key=f"ex_{_i}", use_container_width=True):
+                st.session_state.chat_history.append({"role": "user", "content": _ex})
+                st.rerun()
