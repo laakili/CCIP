@@ -3075,18 +3075,26 @@ def _render_articles(items, empty_hint="Aucun flux actif."):
             badge = '<span style="background:rgba(255,69,69,0.2);color:#ff4545;border:1px solid rgba(255,69,69,0.4);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">ALERTE</span>'
         elif item.get("score",0) >= 1:
             badge = '<span style="background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">VIGILANCE</span>'
-        link_open  = f'<a href="{item["link"]}" target="_blank" style="color:inherit;text-decoration:none;">' if item.get("link") else ""
-        link_close = "</a>" if item.get("link") else ""
-        desc_html  = f"<div style='font-size:0.78em;color:rgba(144,202,249,0.4);margin-top:4px;'>{item['desc'][:140]}…</div>" if item.get('desc') else ""
+        # Échapper tout contenu dynamique RSS pour éviter de casser le HTML
+        _e = _html.escape
+        title_e  = _e(item.get('title',''))
+        source_e = _e(item.get('source',''))
+        date_e   = _e(item.get('date',''))
+        link_url = _e(item.get('link',''))
+        desc_raw = item.get('desc','')[:140]
+        desc_e   = _e(desc_raw)
+        link_open  = f'<a href="{link_url}" target="_blank" style="color:inherit;text-decoration:none;">' if link_url else ""
+        link_close = "</a>" if link_url else ""
+        desc_html  = f"<div style='font-size:0.78em;color:rgba(144,202,249,0.4);margin-top:4px;'>{desc_e}…</div>" if desc_raw else ""
         st.markdown(f"""
         <div class="news-item">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="font-size:1.1em;">{item['icon']}</span>
-            <span class="news-source" style="color:{item['color']};">{item['source']}</span>
+            <span style="font-size:1.1em;">{item.get('icon','📰')}</span>
+            <span class="news-source" style="color:{item.get('color','#90caf9')};">{source_e}</span>
             {badge}
-            <span class="news-date" style="margin-left:auto;">{item.get('date','')}</span>
+            <span class="news-date" style="margin-left:auto;">{date_e}</span>
           </div>
-          {link_open}<div class="news-title">{item['title']}</div>{link_close}
+          {link_open}<div class="news-title">{title_e}</div>{link_close}
           {desc_html}
         </div>""", unsafe_allow_html=True)
 
