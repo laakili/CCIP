@@ -67,26 +67,26 @@ I18N = {
         "ia_title":       "🤖 المساعد الذكي — CCIP",
     },
     "EN": {
-        "ticker_label":   "⚡ LIVE ALERTS",
-        "no_alerts":      "No active alerts · All institutional feeds are being monitored · CCIP Platform operational",
-        "tab1": "🛰️  National Situation",
-        "tab2": "📰  News & Updates",
-        "tab3": "🌤️  Weather & Alerts",
-        "tab4": "🤖  AI Assistant",
-        "feed_status":    "FEED STATUS",
-        "kpi_done":       "Completed Jobs",
-        "kpi_running":    "Running",
-        "kpi_ha":         "Flooded Hectares (total)",
-        "kpi_mod":        "Active Module",
-        "map_title":      "🗺️ SITUATION MAP — MOROCCO",
-        "alerts_title":   "⚡ ACTIVE ALERTS",
-        "jobs_title":     "🌊 LATEST JOBS",
+        "ticker_label":   "⚡ ALERTES EN DIRECT",
+        "no_alerts":      "Aucune alerte active · Tous les flux institutionnels sont sous surveillance · Plateforme CCIP opérationnelle",
+        "tab1": "🛰️  Situation Nationale",
+        "tab2": "📰  Info & Actualités",
+        "tab3": "🌤️  Météo & Alertes",
+        "tab4": "🤖  Assistant IA",
+        "feed_status":    "STATUT FLUX",
+        "kpi_done":       "Traitements terminés",
+        "kpi_running":    "En cours",
+        "kpi_ha":         "Hectares inondés (total)",
+        "kpi_mod":        "Module actif",
+        "map_title":      "🗺️ CARTE DE SITUATION — MAROC",
+        "alerts_title":   "⚡ ALERTES ACTIVES",
+        "jobs_title":     "🌊 DERNIERS TRAITEMENTS",
         "modules_title":  "📡 MODULES",
-        "no_alert":       "No active alerts",
-        "no_job":         "No completed jobs",
-        "news_title":     "📰 NEWS FEEDS — CRISES & ENVIRONMENT MOROCCO",
-        "meteo_title":    "🌤️ WEATHER & VIGILANCE — MOROCCO",
-        "ia_title":       "🤖 AI ASSISTANT — CCIP INTELLIGENCE",
+        "no_alert":       "Aucune alerte active",
+        "no_job":         "Aucun traitement terminé",
+        "news_title":     "📰 FLUX D'ACTUALITÉS — CRISES & ENVIRONNEMENT MAROC",
+        "meteo_title":    "🌤️ MÉTÉO & VIGILANCES — MAROC",
+        "ia_title":       "🤖 ASSISTANT IA — CCIP INTELLIGENCE",
     },
 }
 
@@ -113,28 +113,28 @@ FEEDS_8 = {
         "desc": "Agences de Bassins Hydrauliques",
     },
     "USGS": {
-        "name": "USGS Earthquakes",
+        "name": "USGS — Séismes",
         "url":  "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.atom",
         "icon": "🏔️", "color": "#ff9800", "type": "seisme",
-        "desc": "US Geological Survey — Séismes significatifs",
+        "desc": "Institut Géologique des États-Unis — Séismes significatifs de la semaine",
     },
     "Copernicus": {
         "name": "Copernicus EMS",
         "url":  "https://emergency.copernicus.eu/mapping/feed/rss/activations",
         "icon": "🛰️", "color": "#7c4dff", "type": "ems",
-        "desc": "Copernicus Emergency Management Service",
+        "desc": "Service de Gestion des Urgences Copernicus — Activations cartographiques",
     },
     "EFFIS": {
-        "name": "EFFIS Active Fires",
+        "name": "EFFIS — Incendies",
         "url":  "https://effis.jrc.ec.europa.eu/rss/active_fires.xml",
         "icon": "🔥", "color": "#ff4545", "type": "feu",
-        "desc": "European Forest Fire Information System",
+        "desc": "Système européen d'information sur les incendies de forêt (JRC)",
     },
     "IOC": {
-        "name": "IOC Tsunami (PTWS)",
+        "name": "IOC — Alerte Tsunami",
         "url":  "https://www.tsunami.gov/events/rss_active.xml",
         "icon": "🌊", "color": "#00e676", "type": "tsunami",
-        "desc": "Pacific Tsunami Warning System / IOC-UNESCO",
+        "desc": "Système d'alerte Tsunami Pacifique / IOC-UNESCO",
     },
     "DGPC": {
         "name": "DGPC Maroc",
@@ -149,40 +149,40 @@ FEEDS_8 = {
 # ══════════════════════════════════════════════════════════════
 FEEDS_INTL = {
     "NASA-EO": {
-        "name": "NASA Earth Observatory",
+        "name": "NASA — Observatoire Terrestre",
         "url":  "https://earthobservatory.nasa.gov/feeds/earth-observatory.rss",
-        "icon": "🌍", "color": "#0b3d91", "type": "satellite",
-        "desc": "NASA — Images et actualités observation terrestre (inondations, feux, poussières)",
+        "icon": "🌍", "color": "#1d6fa4", "type": "satellite",
+        "desc": "NASA Earth Observatory — Images satellites, inondations, feux, poussières saharienness",
     },
     "ESA-EO": {
-        "name": "ESA — Earth Observation",
+        "name": "ESA — Observation de la Terre",
         "url":  "https://www.esa.int/rssfeed/Our_Activities/Observing_the_Earth",
-        "icon": "🛰️", "color": "#003087", "type": "satellite",
-        "desc": "Agence Spatiale Européenne — Copernicus, Sentinel, missions EO",
+        "icon": "🛰️", "color": "#1a56b0", "type": "satellite",
+        "desc": "Agence Spatiale Européenne — Copernicus, Sentinel, missions d'observation",
     },
     "GDACS": {
-        "name": "GDACS — Alertes mondiales",
+        "name": "GDACS — Alertes Catastrophes",
         "url":  "https://www.gdacs.org/xml/rss.xml",
         "icon": "🚨", "color": "#dc2626", "type": "crise",
-        "desc": "Global Disaster Alert & Coordination System — ONU/CE",
+        "desc": "Système mondial d'alerte aux catastrophes — ONU / Commission Européenne",
     },
     "OCHA-MAR": {
-        "name": "ReliefWeb Maroc",
+        "name": "OCHA ReliefWeb — Maroc",
         "url":  "https://reliefweb.int/country/mar/rss.xml",
         "icon": "🆘", "color": "#d97706", "type": "humanitaire",
-        "desc": "OCHA ReliefWeb — Urgences humanitaires et crises au Maroc",
+        "desc": "Bureau de coordination des affaires humanitaires ONU — crises au Maroc",
     },
     "WMO": {
-        "name": "WMO — OMM",
+        "name": "OMM — Organisation Météo Mondiale",
         "url":  "https://public.wmo.int/en/rss.xml",
         "icon": "🌐", "color": "#0369a1", "type": "meteo",
-        "desc": "Organisation Météorologique Mondiale — Alertes et rapports climatiques",
+        "desc": "Organisation Météorologique Mondiale — alertes, rapports climatiques, extrêmes",
     },
     "UN-SPIDER": {
-        "name": "UN-SPIDER",
+        "name": "UN-SPIDER — ONU",
         "url":  "https://un-spider.org/rss.xml",
         "icon": "📡", "color": "#7c3aed", "type": "satellite",
-        "desc": "ONU — Info spatiale pour gestion des catastrophes et résilience",
+        "desc": "Programme ONU d'information spatiale pour la gestion des catastrophes",
     },
 }
 
@@ -849,6 +849,17 @@ def _fetch_all_feeds():
             all_items.extend(items)
     all_items.sort(key=lambda x: -x.get("score",0))
     return all_items, statuses
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _translate_fr(text: str) -> str:
+    """Traduit un texte en français via Google Translate (deep-translator). Mis en cache 1h."""
+    if not text or len(text.strip()) < 8:
+        return text
+    try:
+        from deep_translator import GoogleTranslator
+        return GoogleTranslator(source="auto", target="fr").translate(text[:4900]) or text
+    except Exception:
+        return text
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_intl_feeds():
@@ -3091,14 +3102,14 @@ _INTL_MODULES = [
 ]
 
 def _intl_card(item, group_color):
-    """Carte article enrichie — titre large, description complète, couleurs vives."""
+    """Carte article enrichie — titre et description traduits en français."""
     _e        = _html.escape
-    title_e   = _e(item.get("title", ""))
+    # Traduction automatique titre + description → français
+    title_e   = _e(_translate_fr(item.get("title", "")))
     source_e  = _e(item.get("source", ""))
     date_e    = _e(item.get("date", ""))
     link_url  = _e(item.get("link", ""))
-    # Description complète — jusqu'à 500 chars pour montrer plus de contenu
-    desc_raw  = item.get("desc", "")[:500]
+    desc_raw  = _translate_fr(item.get("desc", ""))[:500]
     desc_e    = _e(desc_raw)
     color     = item.get("color", group_color)
     icon      = item.get("icon", "📰")
@@ -3161,7 +3172,7 @@ def _source_pill(feed_key, status_dict):
     cfg = FEEDS_INTL.get(feed_key, {})
     s   = status_dict.get(feed_key, "offline")
     col = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "rgba(144,202,249,0.2)")
-    lbl = "● LIVE" if s=="live" else ("◐ VIDE" if s=="empty" else "○ HORS LIGNE")
+    lbl = "● ACTIF" if s=="live" else ("◐ VIDE" if s=="empty" else "○ HORS LIGNE")
     return (f'<span style="display:inline-flex;align-items:center;gap:6px;'
             f'background:rgba(6,14,28,0.9);border:1px solid {col}60;'
             f'border-radius:20px;padding:5px 14px;margin:0 8px 8px 0;'

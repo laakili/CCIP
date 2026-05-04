@@ -24,3 +24,6 @@ Pillow>=10.0.0
 
 # Page Veille — Assistant IA
 anthropic>=0.40.0
+
+# Traduction automatique articles RSS → français
+deep-translator>=1.11.0
