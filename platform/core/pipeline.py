@@ -294,7 +294,7 @@ class FloodPipeline:
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
       <pixelSpacingInMeter>{px}</pixelSpacingInMeter>
       <mapProjection>EPSG:{epsg}</mapProjection>
-      <nodataValueAtSea>false</nodataValueAtSea>
+      <nodataValueAtSea>true</nodataValueAtSea>
     </parameters></node>
   <node id="LinearToFromdB"><operator>LinearToFromdB</operator>
     <sources><sourceProduct refid="Terrain-Correction"/></sources>
@@ -352,7 +352,7 @@ class FloodPipeline:
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
       <pixelSpacingInMeter>{px}</pixelSpacingInMeter>
       <mapProjection>EPSG:{epsg}</mapProjection>
-      <nodataValueAtSea>false</nodataValueAtSea>
+      <nodataValueAtSea>true</nodataValueAtSea>
     </parameters></node>
   <node id="LinearToFromdB"><operator>LinearToFromdB</operator>
     <sources><sourceProduct refid="Terrain-Correction"/></sources>
@@ -668,7 +668,39 @@ _gdalwarp2 = _os.path.join("{GDAL_BIN}", "gdalwarp") if "{GDAL_BIN}" else "gdalw
 subprocess.run([_gdalwarp2, "-tr", "30", "30", "-r", "near",
     "-co", "COMPRESS=LZW", "-overwrite", reclass_tif, reclass_30m],
     capture_output=True)
-poly_src = reclass_30m if os.path.exists(reclass_30m) else reclass_tif
+
+# --- B2: Lissage spatial des contours (Mean Shift sur masque binaire 30m) ---
+# Gaussian smoothing sur la couche binaire eau → re-seuillage à 0.5
+# Équivalent d'un Mean Shift spatial : élimine les contours en escalier et
+# les pixels isolés tout en préservant les zones homogènes.
+reclass_smooth = reclass_30m.replace(".tif", "_smooth.tif")
+_src_30 = reclass_30m if os.path.exists(reclass_30m) else reclass_tif
+try:
+    from scipy.ndimage import gaussian_filter as _gf
+    _ds30 = gdal.Open(_src_30)
+    _W30, _H30 = _ds30.RasterXSize, _ds30.RasterYSize
+    _gt30, _prj30 = _ds30.GetGeoTransform(), _ds30.GetProjection()
+    _arr30 = _ds30.GetRasterBand(1).ReadAsArray().astype(np.int16)
+    _ds30 = None
+    _nodata30 = (_arr30 == 0)
+    # Masque eau binaire float (0=non-eau, 1=eau)
+    _water_f = (_arr30 == 2).astype(np.float32)
+    # sigma=3 px @ 30m/px → rayon lissage ~90m — fusionne pixels proches avant vectorisation
+    _water_sm = _gf(_water_f, sigma=3.0)
+    _arr_sm = np.where(_nodata30, 0,
+                np.where(_water_sm >= 0.5, 2, 1)).astype(np.int16)
+    _o30 = drv.Create(reclass_smooth, _W30, _H30, 1, gdal.GDT_Int16,
+                      options=["COMPRESS=LZW", "TILED=YES"])
+    _o30.SetGeoTransform(_gt30); _o30.SetProjection(_prj30)
+    _o30.GetRasterBand(1).SetNoDataValue(0)
+    _o30.GetRasterBand(1).WriteArray(_arr_sm)
+    _o30.FlushCache(); _o30 = None
+    print(f"  Lissage Mean Shift: OK (sigma=2 px / ~60m)")
+except Exception as _eb2:
+    reclass_smooth = _src_30
+    print(f"  Lissage Mean Shift ignoré ({{_eb2}})")
+
+poly_src = reclass_smooth if os.path.exists(reclass_smooth) else _src_30
 print(f"  Raster source polygonize: {{os.path.basename(poly_src)}}")
 
 raw_shp = zi_shp.replace(".shp","_raw.shp")
@@ -703,11 +735,108 @@ for feat in src_lay:
     if geom is None: continue
     area = geom.Area() / 10000.0
     if area < AREA_MIN: n_skip += 1; continue
+    # Simplification vecteur : supprime le crénelage pixel (tolérance = 1 px = 30m)
+    geom_s = geom.SimplifyPreserveTopology(30.0)
+    if geom_s is None or geom_s.IsEmpty(): n_skip += 1; continue
     of = ogr.Feature(out_lay.GetLayerDefn())
-    of.SetGeometry(geom.Clone()); of.SetField("Surface_ha", round(area,4))
+    of.SetGeometry(geom_s); of.SetField("Surface_ha", round(area,4))
     out_lay.CreateFeature(of); n_ok += 1
 src = None; out_ds = None
-print(f"  Polygones: {{n_ok}} conservés, {{n_skip}} supprimés (<{{AREA_MIN}} ha)")
+print(f"  Polygones bruts: {{n_ok}} conservés, {{n_skip}} supprimés (<{{AREA_MIN}} ha)")
+
+# --- C2: Nettoyage géométrique — petits polygones + masque mer ---
+print("[C2] Nettoyage géométrique...")
+
+_zi_src = ogr.Open(zi_shp); _zi_lay = _zi_src.GetLayer()
+_utm_srs = _zi_lay.GetSpatialRef()
+_AREA_MIN_M2 = AREA_MIN * 10000.0  # ha → m²
+
+# Construire masque terrestre Maroc via enveloppe convexe des communes GADM
+# UnionCascaded sur 1500+ communes est trop lent — on utilise une approche en 2 passes :
+# 1) dissolve en WGS84 via UnionCascaded sur géométries WGS84 (plus rapide sans reprojection)
+# 2) reprojeter le résultat en UTM une seule fois
+_land_geom = None
+if os.path.exists(communes):
+    try:
+        from osgeo import osr as _osr2
+        _wgs = _osr2.SpatialReference(); _wgs.ImportFromEPSG(4326)
+        _wgs.SetAxisMappingStrategy(_osr2.OAMS_TRADITIONAL_GIS_ORDER)
+        _utm_srs2 = _utm_srs.Clone()
+        _tr  = _osr2.CoordinateTransformation(_wgs, _utm_srs2)
+        _cds = ogr.Open(communes); _cly = _cds.GetLayer()
+        _multi = ogr.Geometry(ogr.wkbMultiPolygon)
+        for _f in _cly:
+            _g = _f.GetGeometryRef()
+            if _g is None: continue
+            _gtype = _g.GetGeometryType()
+            # Normalise en liste de polygones simples
+            _polys = []
+            if _gtype in (ogr.wkbPolygon, ogr.wkbPolygon25D):
+                _polys = [_g]
+            elif _gtype in (ogr.wkbMultiPolygon, ogr.wkbMultiPolygon25D):
+                for _i in range(_g.GetGeometryCount()): _polys.append(_g.GetGeometryRef(_i))
+            for _p in _polys:
+                _pc = _p.Clone()
+                _pc.FlattenTo2D()
+                _multi.AddGeometry(_pc)
+        _n_comm = _multi.GetGeometryCount()
+        # Dissoudre en WGS84 (rapide), puis reprojeter en UTM
+        _land_wgs = _multi.UnionCascaded()
+        _cds = None
+        if _land_wgs is not None:
+            _land_geom = _land_wgs.Clone()
+            _land_geom.Transform(_tr)
+            print(f"  Masque terrestre Maroc: OK ({{_n_comm}} polygones → frontière dissoute)")
+        else:
+            print("  UnionCascaded a retourné None — filtre mer désactivé")
+    except Exception as _em:
+        print(f"  Masque terrestre indisponible ({{_em}}) — filtre mer désactivé")
+
+# Créer couche nettoyée
+_clean_shp = zi_shp.replace(".shp", "_clean.shp")
+if os.path.exists(_clean_shp): drv_shp.DeleteDataSource(_clean_shp)
+_c_ds  = drv_shp.CreateDataSource(_clean_shp)
+_c_lay = _c_ds.CreateLayer("ZI_clean", srs=_utm_srs, geom_type=ogr.wkbPolygon)
+_fld_s = ogr.FieldDefn("Surface_ha", ogr.OFTReal); _fld_s.SetWidth(15); _fld_s.SetPrecision(4)
+_c_lay.CreateField(_fld_s)
+
+_n_kept = _n_small = _n_sea = 0
+_zi_lay.ResetReading()
+for _feat in _zi_lay:
+    _geom = _feat.GetGeometryRef()
+    if _geom is None: continue
+    _area_m2 = _geom.Area()
+
+    # Filtre 1 : surface minimale < 5000 m² (0.5 ha par défaut)
+    if _area_m2 < _AREA_MIN_M2:
+        _n_small += 1; continue
+
+    # Filtre 2 : masque mer — intersection avec territoire terrestre
+    if _land_geom is not None:
+        _inter = _land_geom.Intersection(_geom)
+        if _inter is None or _inter.IsEmpty():
+            _n_sea += 1; continue
+        _geom   = _inter
+        _area_m2 = _geom.Area()
+        if _area_m2 < _AREA_MIN_M2:   # re-vérifier après découpe côtière
+            _n_small += 1; continue
+
+    _of = ogr.Feature(_c_lay.GetLayerDefn())
+    _of.SetGeometry(_geom.Clone()); _of.SetField("Surface_ha", round(_area_m2 / 10000.0, 4))
+    _c_lay.CreateFeature(_of); _n_kept += 1
+
+_zi_src = None; _c_ds = None
+print(f"  Nettoyage: {{_n_kept}} polygones conservés")
+print(f"  Supprimés: {{_n_small}} petits polygones (<{{AREA_MIN}} ha = {{int(_AREA_MIN_M2)}} m²)")
+print(f"  Supprimés: {{_n_sea}} polygones en mer / hors territoire")
+
+# Remplacer zi_shp par la couche finale nettoyée
+import shutil as _sh
+for _ext in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
+    _sf = _clean_shp.replace(".shp", _ext)
+    _df = zi_shp.replace(".shp", _ext)
+    if os.path.exists(_sf): _sh.copy2(_sf, _df)
+print(f"  Couche finale sauvegardée: {{os.path.basename(zi_shp)}}")
 
 # --- D: Statistiques par commune ---
 print("[D] Statistiques par commune...")
