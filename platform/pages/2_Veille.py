@@ -850,20 +850,20 @@ def _fetch_all_feeds():
     all_items.sort(key=lambda x: -x.get("score",0))
     return all_items, statuses
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def _translate_fr(text: str) -> str:
-    """Traduit un texte en français via Google Translate (deep-translator). Mis en cache 1h."""
-    if not text or len(text.strip()) < 8:
-        return text
+def _translate_batch(texts: list) -> list:
+    """Traduit une liste de textes EN→FR via Google Translate. Retourne la liste traduite."""
+    if not texts:
+        return texts
     try:
         from deep_translator import GoogleTranslator
-        return GoogleTranslator(source="auto", target="fr").translate(text[:4900]) or text
+        tr = GoogleTranslator(source="auto", target="fr")
+        return [tr.translate(t[:4900]) or t if t else t for t in texts]
     except Exception:
-        return text
+        return texts
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_intl_feeds():
-    """Fetch international feeds (NASA, ESA, GDACS, OCHA, WMO, UN-SPIDER)."""
+    """Fetch + traduit en français les flux internationaux (NASA, ESA, GDACS, OCHA, WMO, UN-SPIDER)."""
     all_items = []
     statuses  = {}
     for key, cfg in FEEDS_INTL.items():
@@ -884,6 +884,14 @@ def _fetch_intl_feeds():
                     "type":     cfg["type"],
                     "score":    score,
                 })
+            # Traduction en batch : titres puis descriptions pour cette source
+            titles = [it["title"] for it in items]
+            descs  = [it.get("desc","") for it in items]
+            titles_fr = _translate_batch(titles)
+            descs_fr  = _translate_batch(descs)
+            for it, tf, df in zip(items, titles_fr, descs_fr):
+                it["title"] = tf
+                it["desc"]  = df
             all_items.extend(items)
     all_items.sort(key=lambda x: -x.get("score",0))
     return all_items, statuses
@@ -3104,12 +3112,12 @@ _INTL_MODULES = [
 def _intl_card(item, group_color):
     """Carte article enrichie — titre et description traduits en français."""
     _e        = _html.escape
-    # Traduction automatique titre + description → français
-    title_e   = _e(_translate_fr(item.get("title", "")))
+    # Titre et description déjà traduits en français par _fetch_intl_feeds
+    title_e   = _e(item.get("title", ""))
     source_e  = _e(item.get("source", ""))
     date_e    = _e(item.get("date", ""))
     link_url  = _e(item.get("link", ""))
-    desc_raw  = _translate_fr(item.get("desc", ""))[:500]
+    desc_raw  = item.get("desc", "")[:500]
     desc_e    = _e(desc_raw)
     color     = item.get("color", group_color)
     icon      = item.get("icon", "📰")
