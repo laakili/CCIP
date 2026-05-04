@@ -668,7 +668,39 @@ _gdalwarp2 = _os.path.join("{GDAL_BIN}", "gdalwarp") if "{GDAL_BIN}" else "gdalw
 subprocess.run([_gdalwarp2, "-tr", "30", "30", "-r", "near",
     "-co", "COMPRESS=LZW", "-overwrite", reclass_tif, reclass_30m],
     capture_output=True)
-poly_src = reclass_30m if os.path.exists(reclass_30m) else reclass_tif
+
+# --- B2: Lissage spatial des contours (Mean Shift sur masque binaire 30m) ---
+# Gaussian smoothing sur la couche binaire eau → re-seuillage à 0.5
+# Équivalent d'un Mean Shift spatial : élimine les contours en escalier et
+# les pixels isolés tout en préservant les zones homogènes.
+reclass_smooth = reclass_30m.replace(".tif", "_smooth.tif")
+_src_30 = reclass_30m if os.path.exists(reclass_30m) else reclass_tif
+try:
+    from scipy.ndimage import gaussian_filter as _gf
+    _ds30 = gdal.Open(_src_30)
+    _W30, _H30 = _ds30.RasterXSize, _ds30.RasterYSize
+    _gt30, _prj30 = _ds30.GetGeoTransform(), _ds30.GetProjection()
+    _arr30 = _ds30.GetRasterBand(1).ReadAsArray().astype(np.int16)
+    _ds30 = None
+    _nodata30 = (_arr30 == 0)
+    # Masque eau binaire float (0=non-eau, 1=eau)
+    _water_f = (_arr30 == 2).astype(np.float32)
+    # sigma=2 px @ 30m/px → rayon lissage ~60m (adapte contours sans déformer)
+    _water_sm = _gf(_water_f, sigma=2.0)
+    _arr_sm = np.where(_nodata30, 0,
+                np.where(_water_sm >= 0.5, 2, 1)).astype(np.int16)
+    _o30 = drv.Create(reclass_smooth, _W30, _H30, 1, gdal.GDT_Int16,
+                      options=["COMPRESS=LZW", "TILED=YES"])
+    _o30.SetGeoTransform(_gt30); _o30.SetProjection(_prj30)
+    _o30.GetRasterBand(1).SetNoDataValue(0)
+    _o30.GetRasterBand(1).WriteArray(_arr_sm)
+    _o30.FlushCache(); _o30 = None
+    print(f"  Lissage Mean Shift: OK (sigma=2 px / ~60m)")
+except Exception as _eb2:
+    reclass_smooth = _src_30
+    print(f"  Lissage Mean Shift ignoré ({{_eb2}})")
+
+poly_src = reclass_smooth if os.path.exists(reclass_smooth) else _src_30
 print(f"  Raster source polygonize: {{os.path.basename(poly_src)}}")
 
 raw_shp = zi_shp.replace(".shp","_raw.shp")
