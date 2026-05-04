@@ -3043,127 +3043,143 @@ function ft(btn,h){document.querySelectorAll('.tf-btn').forEach(b=>b.classList.r
 # ─────────────────────────────────────────────────────────────
 # TAB 2 — INFO & ACTUALITÉS (flux Maroc + International)
 # ─────────────────────────────────────────────────────────────
-def _render_feed_status_row(feeds_dict, statuses_dict, grid_cols=8):
-    cards = ""
+# ── helpers tab2 ─────────────────────────────────────────────
+_TYPE_COLOR = {
+    "meteo":"#2196f3","satellite":"#7c4dff","geo":"#4caf50",
+    "hydro":"#00bcd4","seisme":"#ff9800","crise":"#ef5350",
+    "humanitaire":"#f59e0b","ems":"#7c4dff",
+}
+_TYPE_LABEL = {
+    "meteo":"MÉTÉO","satellite":"SATELLITE","geo":"GÉO",
+    "hydro":"HYDRO","seisme":"SÉISME","crise":"CRISE",
+    "humanitaire":"HUMANIT.","ems":"EMS",
+}
+
+def _actu_card_html(item):
+    """Génère le HTML d'une carte article — sans badge alerte."""
+    _e       = _html.escape
+    title_e  = _e(item.get("title",""))
+    source_e = _e(item.get("source",""))
+    date_e   = _e(item.get("date",""))
+    link_url = _e(item.get("link",""))
+    desc_raw = item.get("desc","")[:160]
+    desc_e   = _e(desc_raw)
+    color    = item.get("color","#2196f3")
+    icon     = item.get("icon","📰")
+    typ      = item.get("type","")
+    type_col = _TYPE_COLOR.get(typ, "#64748b")
+    type_lbl = _TYPE_LABEL.get(typ, typ.upper()[:6])
+    lire_btn = (f'<a href="{link_url}" target="_blank" style="'
+                f'font-size:0.68em;color:{color};font-family:\'Orbitron\',monospace;'
+                f'letter-spacing:1px;text-decoration:none;opacity:0.8;">LIRE →</a>') if link_url else ""
+    desc_block = (f'<div style="font-size:0.76em;color:rgba(176,210,240,0.45);'
+                  f'line-height:1.45;margin:6px 0 8px;">{desc_e}…</div>') if desc_raw else '<div style="height:8px;"></div>'
+    return f"""
+<div style="background:rgba(8,18,36,0.8);border:1px solid rgba(33,150,243,0.1);
+            border-left:3px solid {color};border-radius:0 10px 10px 0;
+            padding:12px 14px 10px;margin-bottom:10px;">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;">
+    <span style="font-size:1em;">{icon}</span>
+    <span style="font-family:'Orbitron',monospace;font-size:0.56em;
+                 color:{color};letter-spacing:1.5px;opacity:0.85;">{source_e}</span>
+    <span style="font-size:0.55em;padding:1px 6px;border-radius:6px;
+                 background:rgba(255,255,255,0.04);color:{type_col};
+                 font-family:'Orbitron',monospace;letter-spacing:1px;
+                 border:1px solid {type_col}30;">{type_lbl}</span>
+    <span style="margin-left:auto;font-size:0.63em;color:rgba(144,202,249,0.35);">{date_e}</span>
+  </div>
+  <div style="font-size:0.87em;color:#dce8f5;font-weight:500;line-height:1.45;margin-bottom:4px;">
+    {title_e}
+  </div>
+  {desc_block}
+  <div style="text-align:right;">{lire_btn}</div>
+</div>"""
+
+def _section_header(label, color):
+    return f"""
+<div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px;">
+  <div style="flex:1;height:1px;background:linear-gradient(90deg,{color}40,transparent);"></div>
+  <span style="font-family:'Orbitron',monospace;font-size:0.6em;color:{color};
+               letter-spacing:3px;white-space:nowrap;">{label}</span>
+  <div style="flex:1;height:1px;background:linear-gradient(270deg,{color}40,transparent);"></div>
+</div>"""
+
+def _status_pills(feeds_dict, statuses_dict):
+    pills = ""
     for key, cfg in feeds_dict.items():
-        s = statuses_dict.get(key, "offline")
-        dot_cls = "feed-dot-live" if s=="live" else ("feed-dot-empty" if s=="empty" else "feed-dot-offline")
-        s_lbl   = "LIVE" if s=="live" else ("VIDE" if s=="empty" else "OFFLINE")
-        s_col   = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "#ff4545")
-        cards += f"""
-        <div class="feed-status-card" title="{cfg['desc']}">
-          <div class="feed-status-icon">{cfg['icon']}</div>
-          <div class="feed-status-name">{key}</div>
-          <div class="{dot_cls}"></div>
-          <div style="font-size:0.48em;font-family:'Orbitron',monospace;color:{s_col};letter-spacing:1px;">{s_lbl}</div>
-        </div>"""
-    cols_style = f"repeat({grid_cols},1fr)"
-    st.markdown(f'<div class="feed-status-grid" style="grid-template-columns:{cols_style};">{cards}</div>', unsafe_allow_html=True)
+        s   = statuses_dict.get(key, "offline")
+        col = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "rgba(144,202,249,0.2)")
+        pills += (f'<span title="{_html.escape(cfg["desc"])}" style="display:inline-flex;'
+                  f'align-items:center;gap:4px;background:rgba(8,18,36,0.7);'
+                  f'border:1px solid {col}40;border-radius:20px;padding:3px 9px;'
+                  f'margin:0 4px 4px 0;font-size:0.62em;color:{col};'
+                  f'font-family:\'Orbitron\',monospace;letter-spacing:1px;">'
+                  f'<span style="width:5px;height:5px;border-radius:50%;background:{col};'
+                  f'display:inline-block;"></span>{_html.escape(key)}</span>')
+    return f'<div style="margin-bottom:10px;line-height:2;">{pills}</div>'
 
-def _render_articles(items, empty_hint="Aucun flux actif."):
-    if not items:
-        st.markdown(f"""
-        <div class="vcard" style="text-align:center;padding:30px;">
-          <div style="font-size:2em;margin-bottom:10px;">📡</div>
-          <div style="color:rgba(144,202,249,0.5);">Aucun article disponible.<br>
-          <span style="font-size:0.85em;">{empty_hint}</span></div>
-        </div>""", unsafe_allow_html=True)
-        return
-    for item in items:
-        badge = ""
-        if item.get("score",0) >= 2:
-            badge = '<span style="background:rgba(255,69,69,0.2);color:#ff4545;border:1px solid rgba(255,69,69,0.4);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">ALERTE</span>'
-        elif item.get("score",0) >= 1:
-            badge = '<span style="background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">VIGILANCE</span>'
-        # Échapper tout contenu dynamique RSS pour éviter de casser le HTML
-        _e = _html.escape
-        title_e  = _e(item.get('title',''))
-        source_e = _e(item.get('source',''))
-        date_e   = _e(item.get('date',''))
-        link_url = _e(item.get('link',''))
-        desc_raw = item.get('desc','')[:140]
-        desc_e   = _e(desc_raw)
-        link_open  = f'<a href="{link_url}" target="_blank" style="color:inherit;text-decoration:none;">' if link_url else ""
-        link_close = "</a>" if link_url else ""
-        desc_html  = f"<div style='font-size:0.78em;color:rgba(144,202,249,0.4);margin-top:4px;'>{desc_e}…</div>" if desc_raw else ""
-        st.markdown(f"""
-        <div class="news-item">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="font-size:1.1em;">{item.get('icon','📰')}</span>
-            <span class="news-source" style="color:{item.get('color','#90caf9')};">{source_e}</span>
-            {badge}
-            <span class="news-date" style="margin-left:auto;">{date_e}</span>
-          </div>
-          {link_open}<div class="news-title">{title_e}</div>{link_close}
-          {desc_html}
-        </div>""", unsafe_allow_html=True)
-
+# ─────────────────────────────────────────────────────────────
+# TAB 2 — INFO & ACTUALITÉS
+# ─────────────────────────────────────────────────────────────
 with tab2:
-    st.markdown(f'<div class="vtitle">{T["news_title"]}</div>', unsafe_allow_html=True)
 
-    # ── Filtres globaux ───────────────────────────────────────
-    col_flt, col_ref = st.columns([4, 1])
-    with col_flt:
-        keywords       = st.text_input("🔍 Filtrer par mot-clé", placeholder="inondation, flood, earthquake…", label_visibility="collapsed")
-        show_alerts_only = st.toggle("⚡ Alertes uniquement", value=False)
-    with col_ref:
-        if st.button("🔄 Actualiser", use_container_width=True):
+    # ── Barre de recherche + actualiser ───────────────────────
+    col_kw, col_refresh = st.columns([5, 1])
+    with col_kw:
+        t2_kw = st.text_input("", placeholder="🔍  Rechercher dans les actualités…",
+                              label_visibility="collapsed")
+    with col_refresh:
+        if st.button("↺  Actualiser", use_container_width=True):
             st.cache_data.clear(); st.rerun()
-        n_live_mar  = sum(1 for s in _feed_statuses.values() if s=="live")
-        n_live_intl = sum(1 for s in _intl_statuses.values() if s=="live")
-        st.markdown(f"""
-        <div style="text-align:center;padding:4px;font-size:0.75em;">
-          <span style="color:#00e676;font-family:'Orbitron',monospace;">{n_live_mar+n_live_intl}</span>
-          <span style="color:rgba(144,202,249,0.4);"> / {len(FEEDS_8)+len(FEEDS_INTL)} flux actifs</span>
-        </div>""", unsafe_allow_html=True)
 
-    def _apply_filters(items):
-        if show_alerts_only:
-            items = [it for it in items if it.get("score",0) >= 1]
-        if keywords.strip():
-            kw = keywords.lower()
-            items = [it for it in items if kw in it["title"].lower() or kw in it.get("desc","").lower()]
+    # Compteur sources actives
+    n_live_total = (sum(1 for s in _feed_statuses.values() if s=="live") +
+                    sum(1 for s in _intl_statuses.values() if s=="live"))
+    n_total      = len(FEEDS_8) + len(FEEDS_INTL)
+    st.markdown(f"""
+    <div style="font-size:0.72em;color:rgba(144,202,249,0.4);margin-bottom:4px;">
+      <span style="color:#00e676;font-weight:600;">{n_live_total}</span> / {n_total} sources actives
+    </div>""", unsafe_allow_html=True)
+
+    def _t2_filter(items):
+        if t2_kw.strip():
+            kw = t2_kw.lower()
+            items = [it for it in items if kw in it.get("title","").lower()
+                                        or kw in it.get("desc","").lower()]
         return items
 
-    # ══ Section 1 — Flux Maroc ════════════════════════════════
-    st.markdown("""
-    <div style="font-family:'Orbitron',monospace;font-size:0.62em;color:rgba(33,150,243,0.5);
-                letter-spacing:3px;margin:14px 0 8px 0;">🇲🇦 FLUX INSTITUTIONNELS MAROC</div>
-    """, unsafe_allow_html=True)
+    # ══ SECTION 1 — MAROC ════════════════════════════════════
+    st.markdown(_section_header("🇲🇦  ACTUALITÉS INSTITUTIONNELLES — MAROC", "#2196f3"),
+                unsafe_allow_html=True)
+    st.markdown(_status_pills(FEEDS_8, _feed_statuses), unsafe_allow_html=True)
 
-    _render_feed_status_row(FEEDS_8, _feed_statuses, grid_cols=8)
+    mar_items = _t2_filter(_all_feed_items)
+    if mar_items:
+        # Grille 2 colonnes
+        col_a, col_b = st.columns(2)
+        for i, item in enumerate(mar_items):
+            with (col_a if i % 2 == 0 else col_b):
+                st.markdown(_actu_card_html(item), unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="color:rgba(144,202,249,0.35);font-size:0.82em;'
+                    'padding:16px 0;">Aucun article disponible pour les sources Maroc.</div>',
+                    unsafe_allow_html=True)
 
-    col_mar, _ = st.columns([4, 1])
-    with col_mar:
-        mar_keys = list(FEEDS_8.keys())
-        sel_mar  = st.multiselect("Sources Maroc", options=mar_keys,
-                                  default=[k for k in mar_keys if _feed_statuses.get(k,"offline") in ("live","empty")],
-                                  format_func=lambda k: f"{FEEDS_8[k]['icon']} {FEEDS_8[k]['name']}",
-                                  label_visibility="collapsed", key="sel_mar")
+    # ══ SECTION 2 — INTERNATIONAL ════════════════════════════
+    st.markdown(_section_header("🌍  SOURCES INTERNATIONALES — NASA · ESA · ONU · WMO", "#7c4dff"),
+                unsafe_allow_html=True)
+    st.markdown(_status_pills(FEEDS_INTL, _intl_statuses), unsafe_allow_html=True)
 
-    mar_items = _apply_filters([it for it in _all_feed_items if it.get("feed_key","") in sel_mar])
-    live_mar  = [k for k,s in _feed_statuses.items() if s=="live"]
-    _render_articles(mar_items, empty_hint=f"{len(live_mar)} flux actifs : {', '.join(live_mar)}" if live_mar else "Aucun flux Maroc actif.")
-
-    # ══ Section 2 — Sources Internationales ══════════════════
-    st.markdown("""
-    <div style="font-family:'Orbitron',monospace;font-size:0.62em;color:rgba(124,77,255,0.6);
-                letter-spacing:3px;margin:20px 0 8px 0;">🌍 SOURCES INTERNATIONALES — NASA · ESA · ONU · WMO</div>
-    """, unsafe_allow_html=True)
-
-    _render_feed_status_row(FEEDS_INTL, _intl_statuses, grid_cols=6)
-
-    col_intl, _ = st.columns([4, 1])
-    with col_intl:
-        intl_keys = list(FEEDS_INTL.keys())
-        sel_intl  = st.multiselect("Sources internationales", options=intl_keys,
-                                   default=[k for k in intl_keys if _intl_statuses.get(k,"offline") in ("live","empty")],
-                                   format_func=lambda k: f"{FEEDS_INTL[k]['icon']} {FEEDS_INTL[k]['name']}",
-                                   label_visibility="collapsed", key="sel_intl")
-
-    intl_items = _apply_filters([it for it in _intl_feed_items if it.get("feed_key","") in sel_intl])
-    live_intl  = [k for k,s in _intl_statuses.items() if s=="live"]
-    _render_articles(intl_items, empty_hint=f"{len(live_intl)} flux actifs : {', '.join(live_intl)}" if live_intl else "Aucun flux international actif — vérifiez la connexion.")
+    intl_items = _t2_filter(_intl_feed_items)
+    if intl_items:
+        col_c, col_d = st.columns(2)
+        for i, item in enumerate(intl_items):
+            with (col_c if i % 2 == 0 else col_d):
+                st.markdown(_actu_card_html(item), unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="color:rgba(144,202,249,0.35);font-size:0.82em;'
+                    'padding:16px 0;">Aucun article disponible pour les sources internationales.</div>',
+                    unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
 # TAB 3 — MÉTÉO & ALERTES
