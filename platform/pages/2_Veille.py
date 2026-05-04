@@ -144,6 +144,48 @@ FEEDS_8 = {
     },
 }
 
+# ══════════════════════════════════════════════════════════════
+# FLUX INTERNATIONAUX — NASA · ESA · ONU · WMO
+# ══════════════════════════════════════════════════════════════
+FEEDS_INTL = {
+    "NASA-EO": {
+        "name": "NASA Earth Observatory",
+        "url":  "https://earthobservatory.nasa.gov/feeds/earth-observatory.rss",
+        "icon": "🌍", "color": "#0b3d91", "type": "satellite",
+        "desc": "NASA — Images et actualités observation terrestre (inondations, feux, poussières)",
+    },
+    "ESA-EO": {
+        "name": "ESA — Earth Observation",
+        "url":  "https://www.esa.int/rssfeed/Our_Activities/Observing_the_Earth",
+        "icon": "🛰️", "color": "#003087", "type": "satellite",
+        "desc": "Agence Spatiale Européenne — Copernicus, Sentinel, missions EO",
+    },
+    "GDACS": {
+        "name": "GDACS — Alertes mondiales",
+        "url":  "https://www.gdacs.org/xml/rss.xml",
+        "icon": "🚨", "color": "#dc2626", "type": "crise",
+        "desc": "Global Disaster Alert & Coordination System — ONU/CE",
+    },
+    "OCHA-MAR": {
+        "name": "ReliefWeb Maroc",
+        "url":  "https://reliefweb.int/country/mar/rss.xml",
+        "icon": "🆘", "color": "#d97706", "type": "humanitaire",
+        "desc": "OCHA ReliefWeb — Urgences humanitaires et crises au Maroc",
+    },
+    "WMO": {
+        "name": "WMO — OMM",
+        "url":  "https://public.wmo.int/en/rss.xml",
+        "icon": "🌐", "color": "#0369a1", "type": "meteo",
+        "desc": "Organisation Météorologique Mondiale — Alertes et rapports climatiques",
+    },
+    "UN-SPIDER": {
+        "name": "UN-SPIDER",
+        "url":  "https://un-spider.org/rss.xml",
+        "icon": "📡", "color": "#7c3aed", "type": "satellite",
+        "desc": "ONU — Info spatiale pour gestion des catastrophes et résilience",
+    },
+}
+
 ALERT_KEYWORDS = [
     "alerte", "vigilance", "inondation", "séisme", "crue", "activation",
     "fire", "earthquake", "tsunami", "flood", "warning", "rupture",
@@ -745,6 +787,33 @@ def _fetch_all_feeds():
     statuses  = {}
     for key, cfg in FEEDS_8.items():
         raw = _fetch_url(cfg["url"], timeout=5)
+        if raw is None:
+            statuses[key] = "offline"
+        else:
+            items = _parse_rss_raw(raw, max_items=6)
+            statuses[key] = "live" if items else "empty"
+            for it in items:
+                score = sum(1 for kw in ALERT_KEYWORDS
+                            if kw in (it["title"]+" "+it.get("desc","")).lower())
+                it.update({
+                    "feed_key": key,
+                    "source":   cfg["name"],
+                    "icon":     cfg["icon"],
+                    "color":    cfg["color"],
+                    "type":     cfg["type"],
+                    "score":    score,
+                })
+            all_items.extend(items)
+    all_items.sort(key=lambda x: -x.get("score",0))
+    return all_items, statuses
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_intl_feeds():
+    """Fetch international feeds (NASA, ESA, GDACS, OCHA, WMO, UN-SPIDER)."""
+    all_items = []
+    statuses  = {}
+    for key, cfg in FEEDS_INTL.items():
+        raw = _fetch_url(cfg["url"], timeout=7)
         if raw is None:
             statuses[key] = "offline"
         else:
@@ -1457,6 +1526,7 @@ is_rtl = (lang == "AR")
 # ══════════════════════════════════════════════════════════════
 with st.spinner(""):
     _all_feed_items, _feed_statuses = _fetch_all_feeds()
+    _intl_feed_items, _intl_statuses = _fetch_intl_feeds()
 
 _dmn_vigilances = _load_dmn_vigilances()
 _resolve_yt_live_ids.clear()          # vide le cache à chaque démarrage
@@ -2928,105 +2998,121 @@ function ft(btn,h){document.querySelectorAll('.tf-btn').forEach(b=>b.classList.r
 
 
 # ─────────────────────────────────────────────────────────────
-# TAB 2 — INFO & ACTUALITÉS (8 flux institutionnels)
+# TAB 2 — INFO & ACTUALITÉS (flux Maroc + International)
 # ─────────────────────────────────────────────────────────────
-with tab2:
-    st.markdown(f'<div class="vtitle">{T["news_title"]}</div>', unsafe_allow_html=True)
-
-    # ── Statut live des 8 flux ────────────────────────────────
-    st.markdown('<div style="font-family:\'Orbitron\',monospace;font-size:0.62em;color:rgba(33,150,243,0.5);letter-spacing:3px;margin-bottom:8px;">STATUT SOURCES INSTITUTIONNELLES</div>', unsafe_allow_html=True)
-
-    _status_cards = ""
-    for key, cfg in FEEDS_8.items():
-        s = _feed_statuses.get(key, "offline")
-        if s == "live":
-            dot_cls = "feed-dot-live"; s_lbl = "LIVE"
-        elif s == "empty":
-            dot_cls = "feed-dot-empty"; s_lbl = "VIDE"
-        else:
-            dot_cls = "feed-dot-offline"; s_lbl = "OFFLINE"
-
-        _status_cards += f"""
+def _render_feed_status_row(feeds_dict, statuses_dict, grid_cols=8):
+    cards = ""
+    for key, cfg in feeds_dict.items():
+        s = statuses_dict.get(key, "offline")
+        dot_cls = "feed-dot-live" if s=="live" else ("feed-dot-empty" if s=="empty" else "feed-dot-offline")
+        s_lbl   = "LIVE" if s=="live" else ("VIDE" if s=="empty" else "OFFLINE")
+        s_col   = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "#ff4545")
+        cards += f"""
         <div class="feed-status-card" title="{cfg['desc']}">
           <div class="feed-status-icon">{cfg['icon']}</div>
           <div class="feed-status-name">{key}</div>
           <div class="{dot_cls}"></div>
-          <div style="font-size:0.48em;font-family:'Orbitron',monospace;
-                      color:{'#00e676' if s=='live' else ('#ffeb3b' if s=='empty' else '#ff4545')};
-                      letter-spacing:1px;">{s_lbl}</div>
+          <div style="font-size:0.48em;font-family:'Orbitron',monospace;color:{s_col};letter-spacing:1px;">{s_lbl}</div>
         </div>"""
+    cols_style = f"repeat({grid_cols},1fr)"
+    st.markdown(f'<div class="feed-status-grid" style="grid-template-columns:{cols_style};">{cards}</div>', unsafe_allow_html=True)
 
-    st.markdown(f'<div class="feed-status-grid">{_status_cards}</div>', unsafe_allow_html=True)
+def _render_articles(items, empty_hint="Aucun flux actif."):
+    if not items:
+        st.markdown(f"""
+        <div class="vcard" style="text-align:center;padding:30px;">
+          <div style="font-size:2em;margin-bottom:10px;">📡</div>
+          <div style="color:rgba(144,202,249,0.5);">Aucun article disponible.<br>
+          <span style="font-size:0.85em;">{empty_hint}</span></div>
+        </div>""", unsafe_allow_html=True)
+        return
+    for item in items:
+        badge = ""
+        if item.get("score",0) >= 2:
+            badge = '<span style="background:rgba(255,69,69,0.2);color:#ff4545;border:1px solid rgba(255,69,69,0.4);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">ALERTE</span>'
+        elif item.get("score",0) >= 1:
+            badge = '<span style="background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">VIGILANCE</span>'
+        link_open  = f'<a href="{item["link"]}" target="_blank" style="color:inherit;text-decoration:none;">' if item.get("link") else ""
+        link_close = "</a>" if item.get("link") else ""
+        desc_html  = f"<div style='font-size:0.78em;color:rgba(144,202,249,0.4);margin-top:4px;'>{item['desc'][:140]}…</div>" if item.get('desc') else ""
+        st.markdown(f"""
+        <div class="news-item">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:1.1em;">{item['icon']}</span>
+            <span class="news-source" style="color:{item['color']};">{item['source']}</span>
+            {badge}
+            <span class="news-date" style="margin-left:auto;">{item.get('date','')}</span>
+          </div>
+          {link_open}<div class="news-title">{item['title']}</div>{link_close}
+          {desc_html}
+        </div>""", unsafe_allow_html=True)
 
-    # ── Filtres ───────────────────────────────────────────────
-    col_flt, col_ref = st.columns([3, 1])
+with tab2:
+    st.markdown(f'<div class="vtitle">{T["news_title"]}</div>', unsafe_allow_html=True)
+
+    # ── Filtres globaux ───────────────────────────────────────
+    col_flt, col_ref = st.columns([4, 1])
     with col_flt:
-        source_keys = list(FEEDS_8.keys())
-        sel_sources = st.multiselect(
-            "Sources",
-            options=source_keys,
-            default=[k for k in source_keys if _feed_statuses.get(k,"offline") in ("live","empty")],
-            format_func=lambda k: f"{FEEDS_8[k]['icon']} {FEEDS_8[k]['name']}",
-            label_visibility="collapsed",
-        )
-        keywords = st.text_input("🔍 Filtrer par mot-clé", placeholder="inondation, séisme, fire...")
+        keywords       = st.text_input("🔍 Filtrer par mot-clé", placeholder="inondation, flood, earthquake…", label_visibility="collapsed")
         show_alerts_only = st.toggle("⚡ Alertes uniquement", value=False)
-
     with col_ref:
         if st.button("🔄 Actualiser", use_container_width=True):
             st.cache_data.clear(); st.rerun()
-        n_live  = sum(1 for s in _feed_statuses.values() if s=="live")
-        n_total = len(FEEDS_8)
+        n_live_mar  = sum(1 for s in _feed_statuses.values() if s=="live")
+        n_live_intl = sum(1 for s in _intl_statuses.values() if s=="live")
         st.markdown(f"""
-        <div style="text-align:center;padding:6px;font-size:0.78em;color:#00e676;">
-          <span style="font-family:'Orbitron',monospace;font-size:1.1em;">{n_live}/{n_total}</span><br>
-          <span style="color:rgba(144,202,249,0.4);font-size:0.85em;">flux actifs</span>
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="text-align:center;padding:4px;font-size:0.75em;">
+          <span style="color:#00e676;font-family:'Orbitron',monospace;">{n_live_mar+n_live_intl}</span>
+          <span style="color:rgba(144,202,249,0.4);"> / {len(FEEDS_8)+len(FEEDS_INTL)} flux actifs</span>
+        </div>""", unsafe_allow_html=True)
 
-    # ── Articles ──────────────────────────────────────────────
-    displayed = [it for it in _all_feed_items if it.get("feed_key","") in sel_sources]
-    if show_alerts_only:
-        displayed = [it for it in displayed if it.get("score",0) >= 1]
-    if keywords.strip():
-        kw = keywords.lower()
-        displayed = [it for it in displayed
-                     if kw in it["title"].lower() or kw in it.get("desc","").lower()]
+    def _apply_filters(items):
+        if show_alerts_only:
+            items = [it for it in items if it.get("score",0) >= 1]
+        if keywords.strip():
+            kw = keywords.lower()
+            items = [it for it in items if kw in it["title"].lower() or kw in it.get("desc","").lower()]
+        return items
 
-    if displayed:
-        for item in displayed:
-            priority_badge = ""
-            if item.get("score",0) >= 2:
-                priority_badge = '<span style="background:rgba(255,69,69,0.2);color:#ff4545;border:1px solid rgba(255,69,69,0.4);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">ALERTE</span>'
-            elif item.get("score",0) >= 1:
-                priority_badge = '<span style="background:rgba(255,152,0,0.15);color:#ff9800;border:1px solid rgba(255,152,0,0.3);font-size:0.6em;padding:1px 7px;border-radius:10px;font-family:\'Orbitron\',monospace;letter-spacing:1px;margin-left:6px;">VIGILANCE</span>'
+    # ══ Section 1 — Flux Maroc ════════════════════════════════
+    st.markdown("""
+    <div style="font-family:'Orbitron',monospace;font-size:0.62em;color:rgba(33,150,243,0.5);
+                letter-spacing:3px;margin:14px 0 8px 0;">🇲🇦 FLUX INSTITUTIONNELS MAROC</div>
+    """, unsafe_allow_html=True)
 
-            link_html = f'<a href="{item["link"]}" target="_blank" style="color:inherit;text-decoration:none;">' if item.get("link") else ""
-            link_end  = "</a>" if item.get("link") else ""
-            st.markdown(f"""
-            <div class="news-item">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                <span style="font-size:1.1em;">{item['icon']}</span>
-                <span class="news-source" style="color:{item['color']};">{item['source']}</span>
-                {priority_badge}
-                <span class="news-date" style="margin-left:auto;">{item.get('date','')}</span>
-              </div>
-              {link_html}<div class="news-title">{item['title']}</div>{link_end}
-              {"<div style='font-size:0.78em;color:rgba(144,202,249,0.4);margin-top:4px;'>"+item['desc'][:140]+"…</div>" if item.get('desc') else ""}
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        live_keys = [k for k,s in _feed_statuses.items() if s=="live"]
-        hint = f"{len(live_keys)} flux actifs : {', '.join(live_keys)}" if live_keys else "Aucun flux actif — vérifiez la connexion internet."
-        st.markdown(f"""
-        <div class="vcard" style="text-align:center;padding:40px;">
-          <div style="font-size:2em;margin-bottom:12px;">📡</div>
-          <div style="color:rgba(144,202,249,0.5);">
-            Aucun article disponible.<br>
-            <span style="font-size:0.85em;">{hint}</span>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+    _render_feed_status_row(FEEDS_8, _feed_statuses, grid_cols=8)
+
+    col_mar, _ = st.columns([4, 1])
+    with col_mar:
+        mar_keys = list(FEEDS_8.keys())
+        sel_mar  = st.multiselect("Sources Maroc", options=mar_keys,
+                                  default=[k for k in mar_keys if _feed_statuses.get(k,"offline") in ("live","empty")],
+                                  format_func=lambda k: f"{FEEDS_8[k]['icon']} {FEEDS_8[k]['name']}",
+                                  label_visibility="collapsed", key="sel_mar")
+
+    mar_items = _apply_filters([it for it in _all_feed_items if it.get("feed_key","") in sel_mar])
+    live_mar  = [k for k,s in _feed_statuses.items() if s=="live"]
+    _render_articles(mar_items, empty_hint=f"{len(live_mar)} flux actifs : {', '.join(live_mar)}" if live_mar else "Aucun flux Maroc actif.")
+
+    # ══ Section 2 — Sources Internationales ══════════════════
+    st.markdown("""
+    <div style="font-family:'Orbitron',monospace;font-size:0.62em;color:rgba(124,77,255,0.6);
+                letter-spacing:3px;margin:20px 0 8px 0;">🌍 SOURCES INTERNATIONALES — NASA · ESA · ONU · WMO</div>
+    """, unsafe_allow_html=True)
+
+    _render_feed_status_row(FEEDS_INTL, _intl_statuses, grid_cols=6)
+
+    col_intl, _ = st.columns([4, 1])
+    with col_intl:
+        intl_keys = list(FEEDS_INTL.keys())
+        sel_intl  = st.multiselect("Sources internationales", options=intl_keys,
+                                   default=[k for k in intl_keys if _intl_statuses.get(k,"offline") in ("live","empty")],
+                                   format_func=lambda k: f"{FEEDS_INTL[k]['icon']} {FEEDS_INTL[k]['name']}",
+                                   label_visibility="collapsed", key="sel_intl")
+
+    intl_items = _apply_filters([it for it in _intl_feed_items if it.get("feed_key","") in sel_intl])
+    live_intl  = [k for k,s in _intl_statuses.items() if s=="live"]
+    _render_articles(intl_items, empty_hint=f"{len(live_intl)} flux actifs : {', '.join(live_intl)}" if live_intl else "Aucun flux international actif — vérifiez la connexion.")
 
 # ─────────────────────────────────────────────────────────────
 # TAB 3 — MÉTÉO & ALERTES
