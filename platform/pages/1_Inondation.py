@@ -703,6 +703,153 @@ with tab_results:
 
             st.divider()
 
+            # ── Carte interactive ESRI — Zones inondées ──────────────────
+            try:
+                import folium
+                from streamlit_folium import st_folium
+                _HAS_FOLIUM = True
+            except ImportError:
+                _HAS_FOLIUM = False
+
+            _zi_shp_map = job.results.get("zones_inondees", "")
+            _aoi = job.params.get("aoi", {})
+            _lat_c = (_aoi.get("lat_min", 33.0) + _aoi.get("lat_max", 34.0)) / 2
+            _lon_c = (_aoi.get("lon_min", -7.0) + _aoi.get("lon_max", -6.0)) / 2
+
+            if _HAS_FOLIUM:
+                st.markdown("#### 🗺️ Carte des zones inondées")
+
+                # Contrôles style couche zones inondées
+                _sc1, _sc2, _sc3 = st.columns([1, 2, 1])
+                with _sc1:
+                    _zi_color = st.color_picker(
+                        "Couleur zones inondées",
+                        value=st.session_state.get("zi_color", "#1565c0"),
+                        key=f"zi_color_{selected}",
+                    )
+                    st.session_state["zi_color"] = _zi_color
+                with _sc2:
+                    _zi_opacity = st.slider(
+                        "Opacité",
+                        min_value=0.0, max_value=1.0,
+                        value=st.session_state.get("zi_opacity", 0.6),
+                        step=0.05,
+                        key=f"zi_opacity_{selected}",
+                    )
+                    st.session_state["zi_opacity"] = _zi_opacity
+                with _sc3:
+                    _zi_border = st.color_picker(
+                        "Couleur bordure",
+                        value=st.session_state.get("zi_border", "#00e5ff"),
+                        key=f"zi_border_{selected}",
+                    )
+                    st.session_state["zi_border"] = _zi_border
+
+                _m = folium.Map(location=[_lat_c, _lon_c], zoom_start=9, tiles=None)
+
+                # Couche ESRI Satellite (par défaut)
+                folium.TileLayer(
+                    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                    attr="Esri World Imagery",
+                    name="🛰️ ESRI Satellite",
+                    overlay=False, control=True,
+                ).add_to(_m)
+
+                # Couche CartoDB Dark
+                folium.TileLayer(
+                    tiles="CartoDB dark_matter",
+                    name="🌑 CartoDB Dark",
+                    overlay=False, control=True,
+                ).add_to(_m)
+
+                # Couche OpenStreetMap
+                folium.TileLayer(
+                    tiles="OpenStreetMap",
+                    name="🗺️ OpenStreetMap",
+                    overlay=False, control=True,
+                ).add_to(_m)
+
+                # Rectangle AOI
+                if _aoi.get("lat_min") is not None:
+                    folium.Rectangle(
+                        bounds=[[_aoi["lat_min"], _aoi["lon_min"]], [_aoi["lat_max"], _aoi["lon_max"]]],
+                        color="#2196f3", weight=2, fill=False,
+                        dash_array="6 4", tooltip="Zone d'étude (AOI)",
+                        name="🔵 Zone d'étude",
+                    ).add_to(_m)
+
+                # Couche vecteur Shapefile zones inondées
+                if _zi_shp_map and os.path.exists(_zi_shp_map):
+                    try:
+                        import json as _json
+
+                        # Lecture shapefile : geopandas en priorité, osgeo en fallback
+                        _features = []
+                        _bounds = None
+                        try:
+                            import geopandas as gpd
+                            _gdf = gpd.read_file(_zi_shp_map)
+                            if _gdf.crs and _gdf.crs.to_epsg() != 4326:
+                                _gdf = _gdf.to_crs(epsg=4326)
+                            _features = _json.loads(_gdf.to_json()).get("features", [])
+                            b = _gdf.total_bounds  # [minX, minY, maxX, maxY]
+                            _bounds = [[b[1], b[0]], [b[3], b[2]]]
+                        except ImportError:
+                            from osgeo import ogr, osr
+                            _ds_shp = ogr.Open(_zi_shp_map)
+                            _lyr = _ds_shp.GetLayer()
+                            _src_srs = _lyr.GetSpatialRef()
+                            _tgt_srs = osr.SpatialReference()
+                            _tgt_srs.ImportFromEPSG(4326)
+                            _tgt_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+                            _trans = osr.CoordinateTransformation(_src_srs, _tgt_srs) if _src_srs else None
+                            _min_lon, _max_lon, _min_lat, _max_lat = 180, -180, 90, -90
+                            for _feat in _lyr:
+                                _geom = _feat.GetGeometryRef()
+                                if _geom is None:
+                                    continue
+                                if _trans:
+                                    _geom = _geom.Clone()
+                                    _geom.Transform(_trans)
+                                _env = _geom.GetEnvelope()
+                                _min_lon = min(_min_lon, _env[0]); _max_lon = max(_max_lon, _env[1])
+                                _min_lat = min(_min_lat, _env[2]); _max_lat = max(_max_lat, _env[3])
+                                _fj = _json.loads(_feat.ExportToJson())
+                                _fj["geometry"] = _json.loads(_geom.ExportToJson())
+                                _features.append(_fj)
+                            _ds_shp = None
+                            if _features:
+                                _bounds = [[_min_lat, _min_lon], [_max_lat, _max_lon]]
+
+                        if _features:
+                            # Détecter les champs disponibles pour le tooltip
+                            _props = _features[0].get("properties", {}) if _features else {}
+                            _tip_fields = [k for k in _props if k and k.lower() not in ("fid","id","dn")][:3]
+                            # Capturer les valeurs pour la closure
+                            _fc, _bc, _fo = _zi_color, _zi_border, _zi_opacity
+                            folium.GeoJson(
+                                {"type": "FeatureCollection", "features": _features},
+                                name="🌊 Zones inondées",
+                                style_function=lambda x, fc=_fc, bc=_bc, fo=_fo: {
+                                    "fillColor":   fc,
+                                    "color":       bc,
+                                    "weight":      1.5,
+                                    "fillOpacity": fo,
+                                },
+                                tooltip=folium.GeoJsonTooltip(
+                                    fields=_tip_fields, sticky=False,
+                                ) if _tip_fields else None,
+                            ).add_to(_m)
+                            if _bounds:
+                                _m.fit_bounds(_bounds)
+                    except Exception as _map_err:
+                        st.caption(f"⚠️ Couche vecteur indisponible : {_map_err}")
+
+                folium.LayerControl(collapsed=False, position="topright").add_to(_m)
+                st_folium(_m, width=None, height=520, returned_objects=[], use_container_width=True)
+
+                st.divider()
+
             # ── Tableau + filtres ────────────────────────────
             if not df_stats.empty:
                 st.markdown("#### Tableau des zones inondées par commune")
@@ -750,36 +897,82 @@ with tab_results:
                 s = os.path.getsize(p) if os.path.isfile(p) else 0
                 return f"{s/1e6:.1f} MB" if s>1e6 else f"{s/1e3:.0f} KB"
 
-            def _tif_to_png_bytes(tif_path):
-                """Convertit un GeoTIFF en PNG pour prévisualisation."""
+            def _tif_to_png_bytes(tif_path, max_px=1024):
+                """Convertit un GeoTIFF en PNG sous-échantillonné pour prévisualisation."""
                 try:
-                    from osgeo import gdal
                     import numpy as np
-                    ds = gdal.Open(tif_path)
-                    if ds is None: return None
-                    nb = ds.RasterCount
+                    from PIL import Image
+                    Image.MAX_IMAGE_PIXELS = None  # désactive limite decompression bomb
+
                     def _stretch(arr):
                         arr = arr.astype(np.float32)
                         valid = arr[np.isfinite(arr) & (arr > -9000)]
-                        if len(valid) == 0: return np.zeros_like(arr, dtype=np.uint8)
+                        if len(valid) == 0:
+                            return np.zeros_like(arr, dtype=np.uint8)
                         lo, hi = np.percentile(valid, 2), np.percentile(valid, 98)
                         return np.clip((arr - lo) / max(hi - lo, 1e-6) * 255, 0, 255).astype(np.uint8)
-                    if nb >= 3:
-                        r = _stretch(ds.GetRasterBand(1).ReadAsArray())
-                        g = _stretch(ds.GetRasterBand(2).ReadAsArray())
-                        b = _stretch(ds.GetRasterBand(3).ReadAsArray())
-                        rgb = np.stack([r, g, b], axis=-1)
-                    else:
-                        band = ds.GetRasterBand(1).ReadAsArray()
-                        gray = _stretch(band)
-                        rgb = np.stack([gray, gray, gray], axis=-1)
-                    from PIL import Image
+
+                    _read_ok = False
+
+                    # rasterio : lecture sous-échantillonnée directement
+                    try:
+                        import rasterio
+                        from rasterio.enums import Resampling
+                        with rasterio.open(tif_path) as ds:
+                            scale = min(1.0, max_px / max(ds.width, ds.height))
+                            oh = max(1, int(ds.height * scale))
+                            ow = max(1, int(ds.width  * scale))
+                            nb = ds.count
+                            if nb >= 3:
+                                rgb = np.stack([_stretch(ds.read(i, out_shape=(oh, ow),
+                                    resampling=Resampling.nearest)) for i in (1, 2, 3)], axis=-1)
+                            else:
+                                gray = _stretch(ds.read(1, out_shape=(oh, ow),
+                                    resampling=Resampling.nearest))
+                                rgb = np.stack([gray, gray, gray], axis=-1)
+                        _read_ok = True
+                    except ImportError:
+                        pass
+
+                    # osgeo : fallback Docker
+                    if not _read_ok:
+                        try:
+                            from osgeo import gdal
+                            ds = gdal.Open(tif_path)
+                            if ds is None:
+                                return "ERR:gdal.Open a retourné None"
+                            W, H, nb = ds.RasterXSize, ds.RasterYSize, ds.RasterCount
+                            scale = min(1.0, max_px / max(W, H))
+                            ow, oh = max(1, int(W * scale)), max(1, int(H * scale))
+                            if nb >= 3:
+                                rgb = np.stack([_stretch(ds.GetRasterBand(i).ReadAsArray(
+                                    buf_xsize=ow, buf_ysize=oh)) for i in (1, 2, 3)], axis=-1)
+                            else:
+                                gray = _stretch(ds.GetRasterBand(1).ReadAsArray(
+                                    buf_xsize=ow, buf_ysize=oh))
+                                rgb = np.stack([gray, gray, gray], axis=-1)
+                            _read_ok = True
+                        except ImportError:
+                            pass
+
+                    # PIL : fallback universel avec thumbnail (sous-échantillonnage)
+                    if not _read_ok:
+                        img_pil = Image.open(tif_path)
+                        img_pil.thumbnail((max_px, max_px), Image.LANCZOS)
+                        arr = np.array(img_pil)
+                        if arr.ndim == 3 and arr.shape[2] >= 3:
+                            rgb = np.stack([_stretch(arr[:, :, i]) for i in range(3)], axis=-1)
+                        else:
+                            gray = _stretch(arr if arr.ndim == 2 else arr[:, :, 0])
+                            rgb = np.stack([gray, gray, gray], axis=-1)
+                        _read_ok = True
+
                     img = Image.fromarray(rgb)
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
                     return buf.getvalue()
-                except Exception:
-                    return None
+                except Exception as _e:
+                    return f"ERR:{_e}"
 
             # ── Rapport HTML ──────────────────────────────────
             rap = job.results.get("rapport","")
@@ -805,10 +998,10 @@ with tab_results:
                     "RGB_composite.tif", "image/tiff", use_container_width=True, key="dl_rgb")
                 with st.expander("👁 Prévisualiser RGB", expanded=True):
                     png = _tif_to_png_bytes(rgb_path)
-                    if png:
+                    if png and not isinstance(png, str):
                         st.image(png, caption="Rouge=avant, Vert/Bleu=après — zones rouges = inondées", use_container_width=True)
                     else:
-                        st.info("Prévisualisation indisponible (GDAL/PIL requis)")
+                        st.warning(f"Prévisualisation indisponible : {png}")
 
             st.divider()
 
@@ -831,10 +1024,10 @@ with tab_results:
                         "image/tiff", use_container_width=True, key=f"dl_{key}")
                     with col.expander("👁 Aperçu"):
                         png = _tif_to_png_bytes(p)
-                        if png:
+                        if png and not isinstance(png, str):
                             st.image(png, use_container_width=True)
                         else:
-                            st.caption("Aperçu indisponible")
+                            st.caption(f"Aperçu indisponible : {png}")
 
             st.divider()
 
