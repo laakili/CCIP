@@ -3091,48 +3091,50 @@ _INTL_MODULES = [
 ]
 
 def _intl_card(item, group_color):
-    """Carte article enrichie — description longue, contexte source, lien."""
-    _e       = _html.escape
-    title_e  = _e(item.get("title", ""))
-    source_e = _e(item.get("source", ""))
-    date_e   = _e(item.get("date", ""))
-    link_url = _e(item.get("link", ""))
-    # Description longue (240 chars)
-    desc_raw = item.get("desc", "")[:240]
-    desc_e   = _e(desc_raw)
-    color    = item.get("color", group_color)
-    icon     = item.get("icon", "📰")
-    # Contexte source depuis FEEDS_INTL
+    """Carte article enrichie — titre large, description complète, couleurs vives."""
+    _e        = _html.escape
+    title_e   = _e(item.get("title", ""))
+    source_e  = _e(item.get("source", ""))
+    date_e    = _e(item.get("date", ""))
+    link_url  = _e(item.get("link", ""))
+    # Description complète — jusqu'à 500 chars pour montrer plus de contenu
+    desc_raw  = item.get("desc", "")[:500]
+    desc_e    = _e(desc_raw)
+    color     = item.get("color", group_color)
+    icon      = item.get("icon", "📰")
     feed_key  = item.get("feed_key", "")
     feed_cfg  = FEEDS_INTL.get(feed_key, {})
     src_desc  = _e(feed_cfg.get("desc", ""))
+    suffix    = "…" if len(item.get("desc","")) > 500 else ""
     lire_html = (f'<a href="{link_url}" target="_blank" style="display:inline-flex;'
-                 f'align-items:center;gap:4px;font-size:0.68em;color:{color};'
-                 f'font-family:\'Orbitron\',monospace;letter-spacing:1.5px;'
-                 f'text-decoration:none;border:1px solid {color}50;border-radius:20px;'
-                 f'padding:3px 10px;margin-top:8px;opacity:0.85;">'
+                 f'align-items:center;gap:6px;font-size:0.78em;color:#fff;'
+                 f'font-family:\'Orbitron\',monospace;letter-spacing:1.5px;font-weight:600;'
+                 f'text-decoration:none;background:{color};border-radius:6px;'
+                 f'padding:6px 16px;margin-top:12px;">'
                  f'LIRE L\'ARTICLE &#8594;</a>') if link_url else ""
-    desc_block = (f'<p style="font-size:0.78em;color:rgba(176,210,240,0.5);'
-                  f'line-height:1.5;margin:8px 0 4px 0;">{desc_e}…</p>') if desc_raw else ""
+    desc_block = (f'<div style="font-size:0.88em;color:rgba(200,225,255,0.72);'
+                  f'line-height:1.65;margin:10px 0 6px 0;'
+                  f'border-left:2px solid {color}40;padding-left:10px;">'
+                  f'{desc_e}{suffix}</div>') if desc_raw else ""
     return f"""
-<div style="background:rgba(6,14,28,0.85);border:1px solid {color}20;
-            border-top:2px solid {color};border-radius:0 0 10px 10px;
-            padding:14px 16px 12px;margin-bottom:12px;">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;
-              padding-bottom:8px;border-bottom:1px solid rgba(33,150,243,0.08);">
-    <span style="font-size:1.1em;">{icon}</span>
+<div style="background:rgba(6,14,28,0.92);
+            border:1px solid {color}50;border-top:3px solid {color};
+            border-radius:0 0 12px 12px;padding:18px 20px 16px;margin-bottom:14px;
+            box-shadow:0 2px 16px {color}15;">
+  <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;
+              padding-bottom:10px;border-bottom:1px solid {color}20;">
+    <span style="font-size:1.6em;line-height:1;">{icon}</span>
     <div style="flex:1;min-width:0;">
-      <div style="font-family:'Orbitron',monospace;font-size:0.58em;
-                  color:{color};letter-spacing:1.5px;opacity:0.9;">{source_e}</div>
-      <div style="font-size:0.62em;color:rgba(144,202,249,0.35);
-                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-                  margin-top:1px;">{src_desc}</div>
+      <div style="font-family:'Orbitron',monospace;font-size:0.72em;
+                  color:{color};letter-spacing:1.5px;font-weight:700;">{source_e}</div>
+      <div style="font-size:0.74em;color:rgba(176,210,240,0.55);
+                  margin-top:3px;line-height:1.4;">{src_desc}</div>
     </div>
-    <span style="font-size:0.62em;color:rgba(144,202,249,0.35);
-                 white-space:nowrap;flex-shrink:0;">{date_e}</span>
+    <span style="font-size:0.72em;color:rgba(144,202,249,0.5);
+                 white-space:nowrap;flex-shrink:0;padding-top:2px;">{date_e}</span>
   </div>
-  <div style="font-size:0.9em;color:#e8f0fe;font-weight:600;
-              line-height:1.5;margin-bottom:2px;">{title_e}</div>
+  <div style="font-size:1.05em;color:#f0f8ff;font-weight:700;
+              line-height:1.5;margin-bottom:4px;">{title_e}</div>
   {desc_block}
   {lire_html}
 </div>"""
@@ -3140,16 +3142,17 @@ def _intl_card(item, group_color):
 def _module_header(mod):
     c = mod["color"]
     return f"""
-<div style="background:linear-gradient(135deg,{c}12,{c}05);
-            border:1px solid {c}30;border-left:4px solid {c};
-            border-radius:0 12px 12px 0;padding:14px 18px;margin:22px 0 14px;">
-  <div style="display:flex;align-items:center;gap:10px;">
-    <span style="font-size:1.4em;">{mod['icon']}</span>
+<div style="background:linear-gradient(135deg,{c}22,{c}08);
+            border:1px solid {c}60;border-left:5px solid {c};
+            border-radius:0 14px 14px 0;padding:18px 22px;margin:28px 0 16px;
+            box-shadow:0 2px 20px {c}18;">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <span style="font-size:2em;line-height:1;">{mod['icon']}</span>
     <div>
-      <div style="font-family:'Orbitron',monospace;font-size:0.7em;
-                  color:{c};letter-spacing:2px;font-weight:700;">{mod['label']}</div>
-      <div style="font-size:0.74em;color:rgba(176,210,240,0.55);
-                  margin-top:3px;line-height:1.4;">{mod['desc']}</div>
+      <div style="font-family:'Orbitron',monospace;font-size:0.85em;
+                  color:{c};letter-spacing:2px;font-weight:800;">{mod['label']}</div>
+      <div style="font-size:0.84em;color:rgba(200,225,255,0.65);
+                  margin-top:5px;line-height:1.45;">{mod['desc']}</div>
     </div>
   </div>
 </div>"""
@@ -3158,15 +3161,13 @@ def _source_pill(feed_key, status_dict):
     cfg = FEEDS_INTL.get(feed_key, {})
     s   = status_dict.get(feed_key, "offline")
     col = "#00e676" if s=="live" else ("#ffeb3b" if s=="empty" else "rgba(144,202,249,0.2)")
-    lbl = "LIVE" if s=="live" else ("VIDE" if s=="empty" else "HORS LIGNE")
-    return (f'<span style="display:inline-flex;align-items:center;gap:5px;'
-            f'background:rgba(6,14,28,0.9);border:1px solid {col}40;'
-            f'border-radius:20px;padding:4px 11px;margin:0 6px 6px 0;'
-            f'font-size:0.64em;font-family:\'Orbitron\',monospace;">'
-            f'<span style="width:6px;height:6px;border-radius:50%;background:{col};'
-            f'box-shadow:0 0 4px {col};display:inline-block;"></span>'
-            f'<span style="color:rgba(210,230,255,0.8);">{_html.escape(cfg.get("name",""))}</span>'
-            f'<span style="color:{col};letter-spacing:1px;font-size:0.85em;">{lbl}</span>'
+    lbl = "● LIVE" if s=="live" else ("◐ VIDE" if s=="empty" else "○ HORS LIGNE")
+    return (f'<span style="display:inline-flex;align-items:center;gap:6px;'
+            f'background:rgba(6,14,28,0.9);border:1px solid {col}60;'
+            f'border-radius:20px;padding:5px 14px;margin:0 8px 8px 0;'
+            f'font-size:0.74em;font-family:\'Orbitron\',monospace;">'
+            f'<span style="color:{col};font-weight:700;">{lbl}</span>'
+            f'<span style="color:rgba(210,230,255,0.85);margin-left:2px;">{_html.escape(cfg.get("name",""))}</span>'
             f'</span>')
 
 # ─────────────────────────────────────────────────────────────
@@ -3174,27 +3175,29 @@ def _source_pill(feed_key, status_dict):
 # ─────────────────────────────────────────────────────────────
 with tab2:
 
-    # ── En-tête + barre de recherche ─────────────────────────
+    # ── En-tête ───────────────────────────────────────────────
     st.markdown("""
-    <div style="font-family:'Orbitron',monospace;font-size:0.58em;
-                color:rgba(144,202,249,0.4);letter-spacing:3px;margin-bottom:10px;">
-      🌍  VEILLE INTERNATIONALE — NASA · ESA · ONU · WMO · GDACS · OCHA
+    <div style="font-family:'Orbitron',monospace;font-size:0.78em;font-weight:700;
+                color:#90caf9;letter-spacing:3px;margin-bottom:6px;">
+      🌍  VEILLE INTERNATIONALE
+    </div>
+    <div style="font-size:0.84em;color:rgba(176,210,240,0.6);margin-bottom:14px;">
+      Actualités en temps réel — NASA · ESA · GDACS · OCHA · WMO · UN-SPIDER
     </div>""", unsafe_allow_html=True)
 
     col_kw, col_refresh = st.columns([5, 1])
     with col_kw:
-        t2_kw = st.text_input("", placeholder="🔍  Rechercher dans les actualités internationales…",
+        t2_kw = st.text_input("", placeholder="🔍  Rechercher dans les actualités…",
                               label_visibility="collapsed")
     with col_refresh:
         if st.button("↺  Actualiser", use_container_width=True):
             st.cache_data.clear(); st.rerun()
 
-    # Compteur global
     n_live_intl = sum(1 for s in _intl_statuses.values() if s == "live")
     st.markdown(f"""
-    <div style="font-size:0.7em;color:rgba(144,202,249,0.35);margin:4px 0 8px;">
-      <span style="color:#00e676;">{n_live_intl}</span> / {len(FEEDS_INTL)} sources actives
-      &nbsp;·&nbsp; Actualisation automatique toutes les 5 min
+    <div style="font-size:0.8em;color:rgba(144,202,249,0.5);margin:6px 0 10px;">
+      <span style="color:#00e676;font-weight:700;">{n_live_intl}</span>
+      <span> / {len(FEEDS_INTL)} sources actives · mise à jour toutes les 5 min</span>
     </div>""", unsafe_allow_html=True)
 
     def _t2_filter(items):
