@@ -752,6 +752,34 @@ def _fetch_url(url, timeout=6):
     except:
         return None
 
+import re as _re, html as _html
+from email.utils import parsedate_to_datetime as _parsedate
+
+def _fmt_date(raw_date):
+    """Parse RSS/Atom date string → '04 Mai 2026 04:01'."""
+    if not raw_date: return ""
+    try:
+        dt = _parsedate(raw_date.strip())
+        mois = ["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"]
+        return f"{dt.day:02d} {mois[dt.month-1]} {dt.year} {dt.hour:02d}:{dt.minute:02d}"
+    except:
+        try:
+            # Atom format 2026-05-04T04:01:00Z
+            import datetime as _dt
+            d = _dt.datetime.fromisoformat(raw_date[:19].replace("Z",""))
+            mois = ["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"]
+            return f"{d.day:02d} {mois[d.month-1]} {d.year} {d.hour:02d}:{d.minute:02d}"
+        except:
+            return raw_date[:16]
+
+def _clean_text(raw_text):
+    """Strip HTML tags, decode entities, remove WordPress footer, collapse whitespace."""
+    t = _html.unescape(raw_text or "")
+    t = _re.sub(r"<[^>]+>", " ", t)                        # strip HTML tags
+    t = _re.sub(r"The post\s+.+?appeared first on.+", "", t, flags=_re.DOTALL)  # WP footer
+    t = _re.sub(r"\s+", " ", t).strip()
+    return t
+
 def _parse_rss_raw(raw, max_items=6):
     if not raw:
         return []
@@ -760,19 +788,19 @@ def _parse_rss_raw(raw, max_items=6):
         ns = {"atom":"http://www.w3.org/2005/Atom"}
         items = []
         for item in root.findall(".//item")[:max_items]:
-            title = item.findtext("title","").strip()
+            title = _clean_text(item.findtext("title",""))
             link  = item.findtext("link","").strip()
-            date  = item.findtext("pubDate","")
-            desc  = item.findtext("description","")
-            items.append({"title":title,"link":link,"date":date[:25],"desc":desc[:200]})
+            date  = _fmt_date(item.findtext("pubDate",""))
+            desc  = _clean_text(item.findtext("description",""))
+            items.append({"title":title,"link":link,"date":date,"desc":desc[:200]})
         if not items:
             for entry in root.findall(".//atom:entry", ns)[:max_items]:
-                title = entry.findtext("atom:title","",ns).strip()
+                title = _clean_text(entry.findtext("atom:title","",ns))
                 link_el = entry.find("atom:link",ns)
                 link  = link_el.get("href","") if link_el is not None else ""
-                date  = entry.findtext("atom:updated","",ns)[:25]
-                desc  = entry.findtext("atom:summary","",ns)[:200]
-                items.append({"title":title,"link":link,"date":date,"desc":desc})
+                date  = _fmt_date(entry.findtext("atom:updated","",ns))
+                desc  = _clean_text(entry.findtext("atom:summary","",ns))
+                items.append({"title":title,"link":link,"date":date,"desc":desc[:200]})
         return items
     except:
         return []
