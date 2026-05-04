@@ -685,8 +685,8 @@ try:
     _nodata30 = (_arr30 == 0)
     # Masque eau binaire float (0=non-eau, 1=eau)
     _water_f = (_arr30 == 2).astype(np.float32)
-    # sigma=2 px @ 30m/px → rayon lissage ~60m (adapte contours sans déformer)
-    _water_sm = _gf(_water_f, sigma=2.0)
+    # sigma=3 px @ 30m/px → rayon lissage ~90m — fusionne pixels proches avant vectorisation
+    _water_sm = _gf(_water_f, sigma=3.0)
     _arr_sm = np.where(_nodata30, 0,
                 np.where(_water_sm >= 0.5, 2, 1)).astype(np.int16)
     _o30 = drv.Create(reclass_smooth, _W30, _H30, 1, gdal.GDT_Int16,
@@ -735,8 +735,11 @@ for feat in src_lay:
     if geom is None: continue
     area = geom.Area() / 10000.0
     if area < AREA_MIN: n_skip += 1; continue
+    # Simplification vecteur : supprime le crénelage pixel (tolérance = 1 px = 30m)
+    geom_s = geom.SimplifyPreserveTopology(30.0)
+    if geom_s is None or geom_s.IsEmpty(): n_skip += 1; continue
     of = ogr.Feature(out_lay.GetLayerDefn())
-    of.SetGeometry(geom.Clone()); of.SetField("Surface_ha", round(area,4))
+    of.SetGeometry(geom_s); of.SetField("Surface_ha", round(area,4))
     out_lay.CreateFeature(of); n_ok += 1
 src = None; out_ds = None
 print(f"  Polygones bruts: {{n_ok}} conservés, {{n_skip}} supprimés (<{{AREA_MIN}} ha)")
