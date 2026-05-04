@@ -783,11 +783,13 @@ def _clean_text(raw_text):
     return t
 
 def _dedupe_desc(title, desc):
-    """Supprime la répétition du titre en début de description."""
+    """Supprime la répétition du titre et les labels CMS en début de description."""
     if not desc: return ""
+    # Retirer labels CMS courants en début : "Description", "Body", "Summary", "Résumé"
+    desc = _re.sub(r"^(Description|Body|Summary|Résumé|Abstract)\s*[:–\-]?\s*", "", desc, flags=_re.IGNORECASE)
+    # Retirer le titre s'il est répété
     t_norm = _re.sub(r"\s+", " ", title.lower().strip())
-    d_norm = desc.lower().strip()
-    if d_norm.startswith(t_norm[:40].lower()):
+    if desc.lower().strip().startswith(t_norm[:40].lower()):
         desc = desc[len(title):].strip().lstrip(" :-–")
     return desc
 
