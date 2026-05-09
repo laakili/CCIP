@@ -57,7 +57,8 @@ DEFAULT_PARAMS = {
     "dem":            "SRTM 1Sec HGT",
     "speckle_filter": "Refined Lee",
     "seuil_db":       -26.0,
-    "area_min_ha":    0.5,
+    "area_min_ha":          1.0,   # seuil PDF : 10 000 m² = 1 ha
+    "eaux_permanentes_shp": "",    # couche eaux permanentes (optionnel)
     "epsg":           32629,       # UTM 29N (Maroc Nord)
     "aoi": {                       # Zone El Gharb par défaut
         "lon_min": -6.8, "lat_min": 33.5,

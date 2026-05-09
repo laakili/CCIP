@@ -210,11 +210,38 @@ class FloodPipeline:
         os.makedirs(prov_dir, exist_ok=True)
 
         # Communes GADM
-        communes    = self.p.get("communes_shp", self._find_gadm())
+        communes   = self.p.get("communes_shp", self._find_gadm())
+        eaux_perm  = self.p.get("eaux_permanentes_shp", "")
 
         job.set_progress(55, "Lissage + reclassification du masque")
-        tp3_script = self._write_tp3_script(mask_water, zi_shp, communes, stats_csv, prov_dir)
+        tp3_script = self._write_tp3_script(
+            mask_water, zi_shp, communes, stats_csv, prov_dir, eaux_perm
+        )
         self._run_qgis_script(tp3_script, label="TP3")
+
+        # ── Export XLSX (pandas dans l'env principal, pas QGIS Python) ──
+        stats_xlsx = stats_csv.replace(".csv", ".xlsx")
+        try:
+            import pandas as _pd
+            _df = _pd.read_csv(stats_csv, encoding="utf-8")
+            _df_c = _df[
+                _df["Commune"].notna() & (_df["Commune"] != "") &
+                _df["Province"].notna() & (_df["Province"] != "TOTAL")
+            ].copy()
+            with _pd.ExcelWriter(stats_xlsx, engine="openpyxl") as _xw:
+                _df_c.to_excel(_xw, sheet_name="Toutes communes", index=False)
+                for _pv in sorted(_df_c["Province"].dropna().unique()):
+                    _sn = (str(_pv)[:31]
+                           .replace("/","-").replace("\\","-")
+                           .replace("*","").replace("?","")
+                           .replace("[","").replace("]",""))
+                    _df_c[_df_c["Province"] == _pv].to_excel(
+                        _xw, sheet_name=_sn or "Prov", index=False
+                    )
+            job.results["stats_xlsx"] = stats_xlsx
+            job.log(f"Export XLSX: {os.path.basename(stats_xlsx)}")
+        except Exception as _xe:
+            job.log(f"Export XLSX ignoré ({_xe})", "WARN")
 
         job.results.update({
             "zones_inondees": zi_shp,
@@ -559,7 +586,7 @@ print(f"[TP2] Masque eau sauvegarde : {{out_mask}}")
     # ------------------------------------------------------------------
     # SCRIPT QGIS — Vectorisation + Stats (TP3)
     # ------------------------------------------------------------------
-    def _write_tp3_script(self, mask_water, zi_shp, communes, stats_csv, prov_dir):
+    def _write_tp3_script(self, mask_water, zi_shp, communes, stats_csv, prov_dir, eaux_perm=""):
         area_min = self.p.get("area_min_ha", 0.5)
         path = os.path.join(self.outdir, "tp3_process.py")
         with open(path, "w") as f:
@@ -837,6 +864,56 @@ for _ext in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
     _df = zi_shp.replace(".shp", _ext)
     if os.path.exists(_sf): _sh.copy2(_sf, _df)
 print(f"  Couche finale sauvegardée: {{os.path.basename(zi_shp)}}")
+
+# --- C3: Soustraction eaux permanentes ---
+_ep_shp = "{eaux_perm}"
+if _ep_shp and os.path.exists(_ep_shp):
+    print("[C3] Soustraction eaux permanentes...")
+    _ep_ds  = ogr.Open(_ep_shp); _ep_lay = _ep_ds.GetLayer()
+    _ep_srs = _ep_lay.GetSpatialRef()
+    _zi_c3  = ogr.Open(zi_shp);  _zl_c3  = _zi_c3.GetLayer()
+    _zm_srs = _zl_c3.GetSpatialRef(); _zi_c3 = None
+    _needs_r = (_ep_srs is not None) and (not _zm_srs.IsSame(_ep_srs))
+    _tr_ep   = osr.CoordinateTransformation(_ep_srs, _zm_srs) if _needs_r else None
+    _np_shp  = zi_shp.replace(".shp", "_noperm.shp")
+    if os.path.exists(_np_shp): drv_shp.DeleteDataSource(_np_shp)
+    _np_ds   = drv_shp.CreateDataSource(_np_shp)
+    _np_lay  = _np_ds.CreateLayer("ZI_noperm", srs=_zm_srs, geom_type=ogr.wkbPolygon)
+    _np_lay.CreateField(ogr.FieldDefn("Surface_ha", ogr.OFTReal))
+    _zi_c3  = ogr.Open(zi_shp); _zl_c3 = _zi_c3.GetLayer()
+    _ns, _nk, _nd = 0, 0, 0
+    for _f3 in _zl_c3:
+        _g3 = _f3.GetGeometryRef()
+        if _g3 is None: continue
+        _ep_lay.SetSpatialFilter(_g3)
+        _ep_u = None
+        for _ef in _ep_lay:
+            _eg = _ef.GetGeometryRef()
+            if _eg is None: continue
+            _eg = _eg.Clone()
+            if _needs_r: _eg.Transform(_tr_ep)
+            _ep_u = _eg if _ep_u is None else _ep_u.Union(_eg)
+        _ep_lay.SetSpatialFilter(None)
+        if _ep_u is not None:
+            _g3 = _g3.Difference(_ep_u)
+            if _g3 is None or _g3.IsEmpty(): _nd += 1; continue
+            _ns += 1
+        _a3 = _g3.Area() / 10000.0
+        if _a3 < AREA_MIN: _nd += 1; continue
+        _of3 = ogr.Feature(_np_lay.GetLayerDefn())
+        _of3.SetGeometry(_g3.Clone()); _of3.SetField("Surface_ha", round(_a3, 4))
+        _np_lay.CreateFeature(_of3); _nk += 1
+    _zi_c3 = None; _np_ds = None; _ep_ds = None
+    for _ext in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
+        _sf3 = _np_shp.replace(".shp", _ext)
+        _df3 = zi_shp.replace(".shp", _ext)
+        if os.path.exists(_sf3): _sh.copy2(_sf3, _df3)
+    print(f"  Eaux permanentes: {{_ns}} polygones découpés, {{_nd}} supprimés, {{_nk}} conservés")
+else:
+    if _ep_shp:
+        print(f"  [WARN] Couche eaux permanentes introuvable: {{_ep_shp}}")
+    else:
+        print("  [INFO] Aucune couche eaux permanentes (paramètre eaux_permanentes_shp)")
 
 # --- D: Statistiques par commune ---
 print("[D] Statistiques par commune...")
