@@ -498,8 +498,20 @@ with st.sidebar:
         st.caption("Différence avant−après : 3 dB standard SAR")
         px       = st.selectbox("Résolution (m)", [10, 20, 30])
         dem      = st.selectbox("DEM", ["SRTM 1Sec HGT", "SRTM 3Sec", "Copernicus 30m Global DEM"])
-        area_min = st.number_input("Surface min polygone (ha)", value=0.5, min_value=0.1, step=0.1)
-        communes_shp = st.text_input("Couche communes (optionnel)", placeholder="/chemin/communes.shp")
+        area_min = st.number_input("Surface min polygone (ha)", value=1.0, min_value=0.1, step=0.1)
+        st.caption("Seuil PDF CRTS : 1 ha = 10 000 m²")
+        communes_shp = st.text_input(
+            "Couche communes (optionnel)",
+            placeholder="/chemin/communes.shp",
+            help="Shapefile des limites communales pour le calcul des statistiques",
+        )
+        eaux_perm_shp = st.text_input(
+            "Eaux permanentes (optionnel)",
+            placeholder="/chemin/eaux_permanentes.shp",
+            help="Shapefile des eaux permanentes (lacs, barrages, cours d'eau) à soustraire des zones inondées",
+        )
+        if eaux_perm_shp.strip() and not os.path.exists(eaux_perm_shp.strip()):
+            st.warning("⚠️ Fichier eaux permanentes introuvable — le chemin sera ignoré")
 
     st.markdown("---")
 
@@ -553,6 +565,8 @@ with st.sidebar:
                 params["image_before"] = img_before
             if communes_shp.strip():
                 params["communes_shp"] = communes_shp.strip()
+            if eaux_perm_shp.strip() and os.path.exists(eaux_perm_shp.strip()):
+                params["eaux_permanentes_shp"] = eaux_perm_shp.strip()
 
             jid = launch_job(params)
             st.session_state["active_job"] = jid
@@ -1052,9 +1066,9 @@ with tab_results:
 
             st.divider()
 
-            # ── CSV statistiques ──────────────────────────────
-            st.markdown("**📋 Statistiques CSV**")
-            dl1, dl2, dl3 = st.columns(3)
+            # ── CSV / XLSX statistiques ───────────────────────
+            st.markdown("**📋 Statistiques**")
+            dl1, dl2, dl3, dl4 = st.columns(4)
             with dl1:
                 if csv_path and os.path.exists(csv_path):
                     with open(csv_path,"rb") as f:
@@ -1062,6 +1076,14 @@ with tab_results:
                             f"stats_{selected[:8]}.csv", "text/csv",
                             use_container_width=True, key="dl_csv")
             with dl2:
+                xlsx_path = job.results.get("stats_xlsx","")
+                if xlsx_path and os.path.exists(xlsx_path):
+                    with open(xlsx_path,"rb") as f:
+                        st.download_button("📊 Excel (.xlsx)", f.read(),
+                            f"stats_{selected[:8]}.xlsx",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True, key="dl_xlsx")
+            with dl3:
                 prov_dir = job.results.get("provinces_dir","")
                 if prov_dir and os.path.isdir(prov_dir):
                     buf = io.BytesIO()
@@ -1073,7 +1095,7 @@ with tab_results:
                     st.download_button("📦 ZIP par province", buf.read(),
                         f"provinces_{selected[:8]}.zip", "application/zip",
                         use_container_width=True, key="dl_prov")
-            with dl3:
+            with dl4:
                 # ZIP tout le job
                 job_dir = job.outdir if hasattr(job,"outdir") else ""
                 if job_dir and os.path.isdir(job_dir):
