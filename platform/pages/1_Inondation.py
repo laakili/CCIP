@@ -513,6 +513,22 @@ with st.sidebar:
         if eaux_perm_shp.strip() and not os.path.exists(eaux_perm_shp.strip()):
             st.warning("⚠️ Fichier eaux permanentes introuvable — le chemin sera ignoré")
 
+        st.markdown("**🌊 Filtre côtier (avancée de mer)**")
+        coastal_pct = st.slider(
+            "Fraction min. surface sur terre (%)",
+            min_value=10, max_value=100, value=70, step=5,
+            help=(
+                "Un polygone détecté est conservé seulement si au moins X% "
+                "de sa surface est sur terre. "
+                "Ex. 70% → rejette tout polygone dont >30% est en mer. "
+                "Réduire si des inondations côtières légitimes sont supprimées."
+            ),
+        )
+        st.caption(
+            f"🟢 Conservé si ≥ {coastal_pct}% sur terre  "
+            f"· 🔴 Rejeté si >{100-coastal_pct}% en mer (avancée côtière)"
+        )
+
     st.markdown("---")
 
     # Visualisation du pipeline
@@ -567,6 +583,7 @@ with st.sidebar:
                 params["communes_shp"] = communes_shp.strip()
             if eaux_perm_shp.strip() and os.path.exists(eaux_perm_shp.strip()):
                 params["eaux_permanentes_shp"] = eaux_perm_shp.strip()
+            params["coastal_min_land_pct"] = coastal_pct / 100.0
 
             jid = launch_job(params)
             st.session_state["active_job"] = jid

@@ -215,7 +215,8 @@ class FloodPipeline:
 
         job.set_progress(55, "Lissage + reclassification du masque")
         tp3_script = self._write_tp3_script(
-            mask_water, zi_shp, communes, stats_csv, prov_dir, eaux_perm
+            mask_water, zi_shp, communes, stats_csv, prov_dir,
+            eaux_perm=eaux_perm,
         )
         self._run_qgis_script(tp3_script, label="TP3")
 
@@ -587,7 +588,8 @@ print(f"[TP2] Masque eau sauvegarde : {{out_mask}}")
     # SCRIPT QGIS — Vectorisation + Stats (TP3)
     # ------------------------------------------------------------------
     def _write_tp3_script(self, mask_water, zi_shp, communes, stats_csv, prov_dir, eaux_perm=""):
-        area_min = self.p.get("area_min_ha", 0.5)
+        area_min         = self.p.get("area_min_ha", 1.0)
+        coastal_min_land = self.p.get("coastal_min_land_pct", 0.70)
         path = os.path.join(self.outdir, "tp3_process.py")
         with open(path, "w") as f:
             f.write(f"""#!/usr/bin/env python3
@@ -596,12 +598,13 @@ from collections import defaultdict
 from osgeo import gdal, ogr, osr
 gdal.UseExceptions()
 
-mask_water = "{mask_water}"
-zi_shp     = "{zi_shp}"
-communes   = "{communes}"
-stats_csv  = "{stats_csv}"
-prov_dir   = "{prov_dir}"
-AREA_MIN   = {area_min}
+mask_water          = "{mask_water}"
+zi_shp              = "{zi_shp}"
+communes            = "{communes}"
+stats_csv           = "{stats_csv}"
+prov_dir            = "{prov_dir}"
+AREA_MIN            = {area_min}
+COASTAL_MIN_LAND    = {coastal_min_land}  # fraction min surface sur terre (0-1)
 
 # --- A: Lissage ---
 import numpy as np, os as _os
@@ -827,23 +830,28 @@ _c_lay = _c_ds.CreateLayer("ZI_clean", srs=_utm_srs, geom_type=ogr.wkbPolygon)
 _fld_s = ogr.FieldDefn("Surface_ha", ogr.OFTReal); _fld_s.SetWidth(15); _fld_s.SetPrecision(4)
 _c_lay.CreateField(_fld_s)
 
-_n_kept = _n_small = _n_sea = 0
+_n_kept = _n_small = _n_sea = _n_cot = 0
 _zi_lay.ResetReading()
 for _feat in _zi_lay:
     _geom = _feat.GetGeometryRef()
     if _geom is None: continue
     _area_m2 = _geom.Area()
 
-    # Filtre 1 : surface minimale < 5000 m² (0.5 ha par défaut)
+    # Filtre 1 : surface minimale
     if _area_m2 < _AREA_MIN_M2:
         _n_small += 1; continue
 
-    # Filtre 2 : masque mer — intersection avec territoire terrestre
+    # Filtre 2 : masque terrestre + filtre avancée de mer côtière
     if _land_geom is not None:
         _inter = _land_geom.Intersection(_geom)
         if _inter is None or _inter.IsEmpty():
             _n_sea += 1; continue
-        _geom   = _inter
+        # Fraction de la surface originale qui est sur terre
+        # Si < COASTAL_MIN_LAND → polygone majoritairement en mer (avancée côtière)
+        _land_frac = _inter.Area() / max(_area_m2, 1.0)
+        if _land_frac < COASTAL_MIN_LAND:
+            _n_cot += 1; continue
+        _geom    = _inter
         _area_m2 = _geom.Area()
         if _area_m2 < _AREA_MIN_M2:   # re-vérifier après découpe côtière
             _n_small += 1; continue
@@ -854,8 +862,9 @@ for _feat in _zi_lay:
 
 _zi_src = None; _c_ds = None
 print(f"  Nettoyage: {{_n_kept}} polygones conservés")
-print(f"  Supprimés: {{_n_small}} petits polygones (<{{AREA_MIN}} ha = {{int(_AREA_MIN_M2)}} m²)")
-print(f"  Supprimés: {{_n_sea}} polygones en mer / hors territoire")
+print(f"  Supprimés: {{_n_small}} petits (<{{AREA_MIN}} ha)")
+print(f"  Supprimés: {{_n_sea}} hors territoire (mer / frontière)")
+print(f"  Supprimés: {{_n_cot}} avancées côtières (surface terre < {{COASTAL_MIN_LAND*100:.0f}}%)")
 
 # Remplacer zi_shp par la couche finale nettoyée
 import shutil as _sh
