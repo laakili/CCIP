@@ -59,7 +59,8 @@ DEFAULT_PARAMS = {
     "seuil_db":       -26.0,
     "area_min_ha":          1.0,   # seuil PDF : 10 000 m² = 1 ha
     "eaux_permanentes_shp": "",    # couche eaux permanentes (optionnel)
-    "coastal_min_land_pct": 0.70,  # fraction min surface sur terre (filtre avancée mer)
+    "coastal_min_land_pct": 0.50,  # fraction min surface dans zone intérieure (filtre côtier)
+    "coastal_buffer_m":     300,   # retrait en mètres depuis la frontière GADM pour zone intérieure
     "epsg":           32629,       # UTM 29N (Maroc Nord)
     "aoi": {                       # Zone El Gharb par défaut
         "lon_min": -6.8, "lat_min": 33.5,

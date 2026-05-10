@@ -589,7 +589,8 @@ print(f"[TP2] Masque eau sauvegarde : {{out_mask}}")
     # ------------------------------------------------------------------
     def _write_tp3_script(self, mask_water, zi_shp, communes, stats_csv, prov_dir, eaux_perm=""):
         area_min         = self.p.get("area_min_ha", 1.0)
-        coastal_min_land = self.p.get("coastal_min_land_pct", 0.70)
+        coastal_min_land = self.p.get("coastal_min_land_pct", 0.50)
+        coastal_buffer_m = self.p.get("coastal_buffer_m", 300)
         path = os.path.join(self.outdir, "tp3_process.py")
         with open(path, "w") as f:
             f.write(f"""#!/usr/bin/env python3
@@ -604,7 +605,8 @@ communes            = "{communes}"
 stats_csv           = "{stats_csv}"
 prov_dir            = "{prov_dir}"
 AREA_MIN            = {area_min}
-COASTAL_MIN_LAND    = {coastal_min_land}  # fraction min surface sur terre (0-1)
+COASTAL_MIN_LAND    = {coastal_min_land}  # fraction min dans zone intérieure (0-1)
+COASTAL_BUFFER_M    = {coastal_buffer_m}  # retrait en m depuis frontière GADM → zone intérieure
 
 # --- A: Lissage ---
 import numpy as np, os as _os
@@ -781,11 +783,12 @@ _zi_src = ogr.Open(zi_shp); _zi_lay = _zi_src.GetLayer()
 _utm_srs = _zi_lay.GetSpatialRef()
 _AREA_MIN_M2 = AREA_MIN * 10000.0  # ha → m²
 
-# Construire masque terrestre Maroc via enveloppe convexe des communes GADM
-# UnionCascaded sur 1500+ communes est trop lent — on utilise une approche en 2 passes :
-# 1) dissolve en WGS84 via UnionCascaded sur géométries WGS84 (plus rapide sans reprojection)
-# 2) reprojeter le résultat en UTM une seule fois
-_land_geom = None
+# Construire masque terrestre Maroc via dissolution des communes GADM
+# 2 passes : dissolve en WGS84 (rapide) → reprojeter en UTM une seule fois
+# _land_geom  : frontière complète (test "est au Maroc")
+# _land_inner : frontière avec buffer négatif COASTAL_BUFFER_M (zone intérieure, hors plages)
+_land_geom  = None
+_land_inner = None
 if os.path.exists(communes):
     try:
         from osgeo import osr as _osr2
@@ -799,28 +802,37 @@ if os.path.exists(communes):
             _g = _f.GetGeometryRef()
             if _g is None: continue
             _gtype = _g.GetGeometryType()
-            # Normalise en liste de polygones simples
             _polys = []
             if _gtype in (ogr.wkbPolygon, ogr.wkbPolygon25D):
                 _polys = [_g]
             elif _gtype in (ogr.wkbMultiPolygon, ogr.wkbMultiPolygon25D):
                 for _i in range(_g.GetGeometryCount()): _polys.append(_g.GetGeometryRef(_i))
             for _p in _polys:
-                _pc = _p.Clone()
-                _pc.FlattenTo2D()
+                _pc = _p.Clone(); _pc.FlattenTo2D()
                 _multi.AddGeometry(_pc)
         _n_comm = _multi.GetGeometryCount()
-        # Dissoudre en WGS84 (rapide), puis reprojeter en UTM
         _land_wgs = _multi.UnionCascaded()
         _cds = None
         if _land_wgs is not None:
             _land_geom = _land_wgs.Clone()
             _land_geom.Transform(_tr)
-            print(f"  Masque terrestre Maroc: OK ({{_n_comm}} polygones → frontière dissoute)")
+            # Zone intérieure : retire la frange côtière (plages, dunes, littoral)
+            # Un buffer négatif contracte la frontière vers l'intérieur des terres
+            if COASTAL_BUFFER_M > 0:
+                _li = _land_geom.Buffer(-float(COASTAL_BUFFER_M))
+                if _li is not None and not _li.IsEmpty():
+                    _land_inner = _li
+                    print(f"  Masque terrestre: OK ({{_n_comm}} communes → zone intérieure -{{COASTAL_BUFFER_M}}m)")
+                else:
+                    _land_inner = _land_geom
+                    print(f"  Buffer négatif vide (zone trop petite?) → filtre côtier désactivé")
+            else:
+                _land_inner = _land_geom
+                print(f"  Masque terrestre Maroc: OK ({{_n_comm}} communes, COASTAL_BUFFER_M=0)")
         else:
-            print("  UnionCascaded a retourné None — filtre mer désactivé")
+            print("  UnionCascaded a retourné None — filtre côtier désactivé")
     except Exception as _em:
-        print(f"  Masque terrestre indisponible ({{_em}}) — filtre mer désactivé")
+        print(f"  Masque terrestre indisponible ({{_em}}) — filtre côtier désactivé")
 
 # Créer couche nettoyée
 _clean_shp = zi_shp.replace(".shp", "_clean.shp")
@@ -841,19 +853,26 @@ for _feat in _zi_lay:
     if _area_m2 < _AREA_MIN_M2:
         _n_small += 1; continue
 
-    # Filtre 2 : masque terrestre + filtre avancée de mer côtière
+    # Filtre 2 : masque terrestre + filtre frange côtière (plages, dunes)
     if _land_geom is not None:
-        _inter = _land_geom.Intersection(_geom)
-        if _inter is None or _inter.IsEmpty():
+        # Test "est au Maroc" : intersection avec frontière complète
+        _inter_full = _land_geom.Intersection(_geom)
+        if _inter_full is None or _inter_full.IsEmpty():
             _n_sea += 1; continue
-        # Fraction de la surface originale qui est sur terre
-        # Si < COASTAL_MIN_LAND → polygone majoritairement en mer (avancée côtière)
-        _land_frac = _inter.Area() / max(_area_m2, 1.0)
+        # Test "est en zone intérieure" : intersection avec frontière contractée
+        # Élimine les polygones sur les plages/littoral sans exclure les vraies crues
+        if _land_inner is not None:
+            _inter_inner = _land_inner.Intersection(_geom)
+            _inner_area  = _inter_inner.Area() if (_inter_inner and not _inter_inner.IsEmpty()) else 0.0
+        else:
+            _inner_area  = _inter_full.Area()
+        _land_frac = _inner_area / max(_area_m2, 1.0)
         if _land_frac < COASTAL_MIN_LAND:
             _n_cot += 1; continue
-        _geom    = _inter
+        # Découper la géométrie sur la frontière réelle (pas la zone intérieure)
+        _geom    = _inter_full
         _area_m2 = _geom.Area()
-        if _area_m2 < _AREA_MIN_M2:   # re-vérifier après découpe côtière
+        if _area_m2 < _AREA_MIN_M2:
             _n_small += 1; continue
 
     _of = ogr.Feature(_c_lay.GetLayerDefn())
@@ -864,7 +883,7 @@ _zi_src = None; _c_ds = None
 print(f"  Nettoyage: {{_n_kept}} polygones conservés")
 print(f"  Supprimés: {{_n_small}} petits (<{{AREA_MIN}} ha)")
 print(f"  Supprimés: {{_n_sea}} hors territoire (mer / frontière)")
-print(f"  Supprimés: {{_n_cot}} avancées côtières (surface terre < {{COASTAL_MIN_LAND*100:.0f}}%)")
+print(f"  Supprimés: {{_n_cot}} polygones côtiers (zone intérieure <{coastal_min_land*100:.0f}%, buffer -{{COASTAL_BUFFER_M}}m)")
 
 # Remplacer zi_shp par la couche finale nettoyée
 import shutil as _sh

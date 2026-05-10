@@ -29,7 +29,7 @@ with open(_logo_path, "rb") as _f:
     CRTS_LOGO_B64 = f"data:image/png;base64,{base64.b64encode(_f.read()).decode()}"
 sys.path.insert(0, PLATFORM_DIR)
 from core.pipeline import FloodPipeline, Job
-from core.config   import RESULTS_DIR, DEFAULT_PARAMS
+from core.config   import RESULTS_DIR, DEFAULT_PARAMS, GADM_DEFAULT
 
 st.set_page_config(
     page_title="CCIP — Inondation",
@@ -240,6 +240,37 @@ hr { border-color: rgba(33,150,243,0.1) !important; }
 
 </style>
 """, unsafe_allow_html=True)
+
+# ── Cache GADM dissolution (régions / provinces depuis level-4) ───────────
+@st.cache_data(show_spinner=False)
+def _gadm_dissolved(gadm_shp, col):
+    """Dissolve GADM level-4 communes by NAME_1 (regions) or NAME_2 (provinces)."""
+    try:
+        import geopandas as _gp, json as _j
+        gdf = _gp.read_file(gadm_shp).to_crs(epsg=4326)
+        if col not in gdf.columns:
+            return []
+        diss = gdf[[col, "geometry"]].dissolve(by=col, as_index=False)
+        return _j.loads(diss.to_json())["features"]
+    except Exception:
+        return []
+
+@st.cache_data(show_spinner=False)
+def _load_zi_geojson(shp_path):
+    """Read ZI shapefile → GeoJSON features list + bounds (WGS84)."""
+    try:
+        import geopandas as _gp, json as _j
+        gdf = _gp.read_file(shp_path)
+        if gdf.crs and gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+        gdf["_fid"] = range(len(gdf))
+        feats = _j.loads(gdf.to_json())["features"]
+        for f in feats:
+            f["properties"]["_fid"] = int(f["properties"]["_fid"])
+        b = gdf.total_bounds
+        return feats, [[float(b[1]), float(b[0])], [float(b[3]), float(b[2])]]
+    except Exception:
+        return [], None
 
 # ── Chargement des jobs ───────────────────────────────────────
 @st.cache_resource
@@ -513,20 +544,30 @@ with st.sidebar:
         if eaux_perm_shp.strip() and not os.path.exists(eaux_perm_shp.strip()):
             st.warning("⚠️ Fichier eaux permanentes introuvable — le chemin sera ignoré")
 
-        st.markdown("**🌊 Filtre côtier (avancée de mer)**")
-        coastal_pct = st.slider(
-            "Fraction min. surface sur terre (%)",
-            min_value=10, max_value=100, value=70, step=5,
+        st.markdown("**🌊 Filtre côtier (plages / littoral)**")
+        coastal_buffer = st.slider(
+            "Retrait côtier (m)",
+            min_value=0, max_value=2000, value=300, step=50,
             help=(
-                "Un polygone détecté est conservé seulement si au moins X% "
-                "de sa surface est sur terre. "
-                "Ex. 70% → rejette tout polygone dont >30% est en mer. "
-                "Réduire si des inondations côtières légitimes sont supprimées."
+                "Distance en mètres retirée depuis la frontière GADM pour créer la "
+                "'zone intérieure'. Tout polygone détecté dont moins de X% de sa surface "
+                "se trouve dans cette zone intérieure est considéré comme une fausse alarme "
+                "côtière (plage, dune, embouchure) et supprimé.\n\n"
+                "300 m = valeur recommandée pour plages marocaines. "
+                "0 m = filtre côtier désactivé."
+            ),
+        )
+        coastal_pct = st.slider(
+            "Fraction min. dans zone intérieure (%)",
+            min_value=10, max_value=100, value=50, step=5,
+            help=(
+                "Seuil : si < X% du polygone est en zone intérieure (après retrait), "
+                "il est supprimé. 50% = recommandé avec buffer 300m."
             ),
         )
         st.caption(
-            f"🟢 Conservé si ≥ {coastal_pct}% sur terre  "
-            f"· 🔴 Rejeté si >{100-coastal_pct}% en mer (avancée côtière)"
+            f"Zone intérieure = frontière GADM contractée de {coastal_buffer} m  "
+            f"· Seuil {coastal_pct}% → polygones de plage supprimés automatiquement"
         )
 
     st.markdown("---")
@@ -584,6 +625,7 @@ with st.sidebar:
             if eaux_perm_shp.strip() and os.path.exists(eaux_perm_shp.strip()):
                 params["eaux_permanentes_shp"] = eaux_perm_shp.strip()
             params["coastal_min_land_pct"] = coastal_pct / 100.0
+            params["coastal_buffer_m"]     = int(coastal_buffer)
 
             jid = launch_job(params)
             st.session_state["active_job"] = jid
@@ -706,7 +748,9 @@ with tab_results:
 
         if job:
             # ── Métriques ────────────────────────────────────
+            # Utiliser le CSV édité s'il existe dans job.results
             csv_path = job.results.get("stats_csv", "")
+            _is_stats_edited = "_edited" in csv_path
             total_ha, n_communes, n_provinces = 0.0, 0, 0
             df_stats = pd.DataFrame()
 
@@ -731,10 +775,12 @@ with tab_results:
             m2.metric("Superficie", f"{total_ha/100:,.1f} km²")
             m3.metric("Communes", n_communes)
             m4.metric("Provinces", n_provinces)
+            if _is_stats_edited:
+                st.caption("✏️ Statistiques recalculées après édition manuelle des polygones")
 
             st.divider()
 
-            # ── Carte interactive ESRI — Zones inondées ──────────────────
+            # ── Carte interactive — Zones inondées + Régions/Provinces ──
             try:
                 import folium
                 from streamlit_folium import st_folium
@@ -742,144 +788,322 @@ with tab_results:
             except ImportError:
                 _HAS_FOLIUM = False
 
-            _zi_shp_map = job.results.get("zones_inondees", "")
+            _zi_shp_orig = job.results.get("zones_inondees", "")
             _aoi = job.params.get("aoi", {})
             _lat_c = (_aoi.get("lat_min", 33.0) + _aoi.get("lat_max", 34.0)) / 2
             _lon_c = (_aoi.get("lon_min", -7.0) + _aoi.get("lon_max", -6.0)) / 2
 
+            # ── Session state sélection / édition ──────────────────────
+            _sel_key   = f"sel_fids_{selected}"
+            _edit_key  = f"edit_shp_{selected}"
+            _click_key = f"last_click_{selected}"
+            _sel_fids  = set(st.session_state.get(_sel_key, []))
+            _zi_shp_map = st.session_state.get(_edit_key) or _zi_shp_orig
+            if not _zi_shp_map or not os.path.exists(_zi_shp_map):
+                _zi_shp_map = _zi_shp_orig
+            _is_edited = bool(
+                st.session_state.get(_edit_key) and
+                os.path.exists(st.session_state.get(_edit_key, ""))
+            )
+
+            # ── Recalcul statistiques ───────────────────────────────────
+            def _do_recompute(zi_shp, out_csv):
+                import geopandas as _gp, csv as _cv
+                gadm = job.params.get("communes_shp","") or GADM_DEFAULT
+                if not os.path.exists(gadm):
+                    return False, "GADM introuvable"
+                zi  = _gp.read_file(zi_shp)
+                com = _gp.read_file(gadm)
+                if zi.crs and com.crs and zi.crs != com.crs:
+                    com = com.to_crs(zi.crs)
+                inter = _gp.overlay(zi, com, how="intersection")
+                inter["Surface_ZI_ha"] = inter.geometry.area / 10000.0
+                for s, d in {"NAME_1":"Region","NAME_2":"Province","NAME_4":"Commune","NAME_3":"Commune"}.items():
+                    if s in inter.columns and d not in inter.columns:
+                        inter.rename(columns={s: d}, inplace=True)
+                gc = [c for c in ["Region","Province","Commune"] if c in inter.columns]
+                stats = inter.groupby(gc)["Surface_ZI_ha"].sum().reset_index()
+                stats = stats[stats["Surface_ZI_ha"] > 0].sort_values("Surface_ZI_ha", ascending=False)
+                with open(out_csv, "w", encoding="utf-8", newline="") as _f:
+                    _w = _cv.writer(_f)
+                    _w.writerow(["Region","Province","Commune","Surface_ZI_ha"])
+                    for _, _r in stats.iterrows():
+                        _w.writerow([_r.get("Region",""), _r.get("Province",""),
+                                     _r.get("Commune",""), f"{_r['Surface_ZI_ha']:.2f}"])
+                    _w.writerow(["TOTAL","","", f"{stats['Surface_ZI_ha'].sum():.2f}"])
+                try:
+                    import pandas as _pd2
+                    out_xlsx = out_csv.replace(".csv","_edited.xlsx")
+                    with _pd2.ExcelWriter(out_xlsx, engine="openpyxl") as _xw:
+                        stats.to_excel(_xw, sheet_name="Toutes communes", index=False)
+                        if "Province" in stats.columns:
+                            for _pv in sorted(stats["Province"].dropna().unique()):
+                                stats[stats["Province"]==_pv].to_excel(_xw, sheet_name=_pv[:31], index=False)
+                    job.results["stats_xlsx"] = out_xlsx
+                except Exception:
+                    pass
+                return True, stats
+
+            # ── Couches GADM dérivées du level-4 ───────────────────────
+            _gadm4 = GADM_DEFAULT if os.path.exists(GADM_DEFAULT) else (job.params.get("communes_shp","") or "")
+            _reg_feats = _gadm_dissolved(_gadm4, "NAME_1") if _gadm4 and os.path.exists(_gadm4) else []
+            _prv_feats = _gadm_dissolved(_gadm4, "NAME_2") if _gadm4 and os.path.exists(_gadm4) else []
+
+            # ── Chargement des features ZI ──────────────────────────────
+            _features, _bounds = (
+                _load_zi_geojson(_zi_shp_map)
+                if _zi_shp_map and os.path.exists(_zi_shp_map)
+                else ([], None)
+            )
+
             if _HAS_FOLIUM:
                 st.markdown("#### 🗺️ Carte des zones inondées")
 
-                # Contrôles style couche zones inondées
-                _sc1, _sc2, _sc3 = st.columns([1, 2, 1])
+                _sc1, _sc2, _sc3, _sc4 = st.columns([1, 2, 1, 2])
                 with _sc1:
-                    _zi_color = st.color_picker(
-                        "Couleur zones inondées",
-                        value=st.session_state.get("zi_color", "#1565c0"),
-                        key=f"zi_color_{selected}",
-                    )
+                    _zi_color = st.color_picker("Couleur ZI",
+                        value=st.session_state.get("zi_color","#1565c0"),
+                        key=f"zi_color_{selected}")
                     st.session_state["zi_color"] = _zi_color
                 with _sc2:
-                    _zi_opacity = st.slider(
-                        "Opacité",
-                        min_value=0.0, max_value=1.0,
-                        value=st.session_state.get("zi_opacity", 0.6),
-                        step=0.05,
-                        key=f"zi_opacity_{selected}",
-                    )
+                    _zi_opacity = st.slider("Opacité ZI", 0.0, 1.0,
+                        value=st.session_state.get("zi_opacity", 0.6), step=0.05,
+                        key=f"zi_opacity_{selected}")
                     st.session_state["zi_opacity"] = _zi_opacity
                 with _sc3:
-                    _zi_border = st.color_picker(
-                        "Couleur bordure",
-                        value=st.session_state.get("zi_border", "#00e5ff"),
-                        key=f"zi_border_{selected}",
-                    )
+                    _zi_border = st.color_picker("Bordure ZI",
+                        value=st.session_state.get("zi_border","#00e5ff"),
+                        key=f"zi_border_{selected}")
                     st.session_state["zi_border"] = _zi_border
+                with _sc4:
+                    st.markdown(
+                        "<small>💡 <b>Cliquez sur un polygone</b> pour le sélectionner "
+                        "(rouge). Recliquez pour désélectionner. "
+                        "Ou cochez directement dans le tableau ci-dessous.</small>",
+                        unsafe_allow_html=True)
 
                 _m = folium.Map(location=[_lat_c, _lon_c], zoom_start=9, tiles=None)
-
-                # Couche ESRI Satellite (par défaut)
                 folium.TileLayer(
                     tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-                    attr="Esri World Imagery",
-                    name="🛰️ ESRI Satellite",
-                    overlay=False, control=True,
-                ).add_to(_m)
+                    attr="Esri World Imagery", name="🛰️ ESRI Satellite",
+                    overlay=False, control=True).add_to(_m)
+                folium.TileLayer(tiles="CartoDB dark_matter",
+                    name="🌑 CartoDB Dark", overlay=False, control=True).add_to(_m)
+                folium.TileLayer(tiles="OpenStreetMap",
+                    name="🗺️ OpenStreetMap", overlay=False, control=True).add_to(_m)
 
-                # Couche CartoDB Dark
-                folium.TileLayer(
-                    tiles="CartoDB dark_matter",
-                    name="🌑 CartoDB Dark",
-                    overlay=False, control=True,
-                ).add_to(_m)
+                # Couche Régions (contour orange pointillé)
+                if _reg_feats:
+                    folium.GeoJson(
+                        {"type":"FeatureCollection","features":_reg_feats},
+                        name="🏛️ Régions",
+                        style_function=lambda x: {
+                            "fillColor":"none","color":"#ff9800",
+                            "weight":2.5,"fillOpacity":0.0,"dashArray":"10 5"},
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=["NAME_1"], aliases=["Région"], sticky=True),
+                        show=True,
+                    ).add_to(_m)
 
-                # Couche OpenStreetMap
-                folium.TileLayer(
-                    tiles="OpenStreetMap",
-                    name="🗺️ OpenStreetMap",
-                    overlay=False, control=True,
-                ).add_to(_m)
+                # Couche Provinces (contour vert pointillé fin, masqué par défaut)
+                if _prv_feats:
+                    folium.GeoJson(
+                        {"type":"FeatureCollection","features":_prv_feats},
+                        name="📍 Provinces",
+                        style_function=lambda x: {
+                            "fillColor":"none","color":"#4caf50",
+                            "weight":1.5,"fillOpacity":0.0,"dashArray":"5 3"},
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=["NAME_2"], aliases=["Province"], sticky=True),
+                        show=False,
+                    ).add_to(_m)
+
+                # Couche ZI avec coloration sélection
+                if _features:
+                    _fc, _bc, _fo = _zi_color, _zi_border, _zi_opacity
+                    _sel_snap = frozenset(_sel_fids)
+                    _tip_props = [k for k in (_features[0]["properties"] if _features else {})
+                                  if k and k.lower() not in ("fid","id","dn","_fid")][:2]
+
+                    def _zi_style(feat, fc=_fc, bc=_bc, fo=_fo, sel=_sel_snap):
+                        if feat["properties"].get("_fid") in sel:
+                            return {"fillColor":"#ff5722","color":"#ff1744",
+                                    "weight":2.5,"fillOpacity":0.85}
+                        return {"fillColor":fc,"color":bc,"weight":1.5,"fillOpacity":fo}
+
+                    folium.GeoJson(
+                        {"type":"FeatureCollection","features":_features},
+                        name="🌊 Zones inondées",
+                        style_function=_zi_style,
+                        tooltip=folium.GeoJsonTooltip(
+                            fields=["_fid"] + _tip_props,
+                            aliases=["ID"] + _tip_props,
+                            sticky=False),
+                    ).add_to(_m)
+                    if _bounds:
+                        _m.fit_bounds(_bounds)
 
                 # Rectangle AOI
                 if _aoi.get("lat_min") is not None:
                     folium.Rectangle(
-                        bounds=[[_aoi["lat_min"], _aoi["lon_min"]], [_aoi["lat_max"], _aoi["lon_max"]]],
+                        bounds=[[_aoi["lat_min"],_aoi["lon_min"]],
+                                [_aoi["lat_max"],_aoi["lon_max"]]],
                         color="#2196f3", weight=2, fill=False,
                         dash_array="6 4", tooltip="Zone d'étude (AOI)",
-                        name="🔵 Zone d'étude",
-                    ).add_to(_m)
-
-                # Couche vecteur Shapefile zones inondées
-                if _zi_shp_map and os.path.exists(_zi_shp_map):
-                    try:
-                        import json as _json
-
-                        # Lecture shapefile : geopandas en priorité, osgeo en fallback
-                        _features = []
-                        _bounds = None
-                        try:
-                            import geopandas as gpd
-                            _gdf = gpd.read_file(_zi_shp_map)
-                            if _gdf.crs and _gdf.crs.to_epsg() != 4326:
-                                _gdf = _gdf.to_crs(epsg=4326)
-                            _features = _json.loads(_gdf.to_json()).get("features", [])
-                            b = _gdf.total_bounds  # [minX, minY, maxX, maxY]
-                            _bounds = [[b[1], b[0]], [b[3], b[2]]]
-                        except ImportError:
-                            from osgeo import ogr, osr
-                            _ds_shp = ogr.Open(_zi_shp_map)
-                            _lyr = _ds_shp.GetLayer()
-                            _src_srs = _lyr.GetSpatialRef()
-                            _tgt_srs = osr.SpatialReference()
-                            _tgt_srs.ImportFromEPSG(4326)
-                            _tgt_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-                            _trans = osr.CoordinateTransformation(_src_srs, _tgt_srs) if _src_srs else None
-                            _min_lon, _max_lon, _min_lat, _max_lat = 180, -180, 90, -90
-                            for _feat in _lyr:
-                                _geom = _feat.GetGeometryRef()
-                                if _geom is None:
-                                    continue
-                                if _trans:
-                                    _geom = _geom.Clone()
-                                    _geom.Transform(_trans)
-                                _env = _geom.GetEnvelope()
-                                _min_lon = min(_min_lon, _env[0]); _max_lon = max(_max_lon, _env[1])
-                                _min_lat = min(_min_lat, _env[2]); _max_lat = max(_max_lat, _env[3])
-                                _fj = _json.loads(_feat.ExportToJson())
-                                _fj["geometry"] = _json.loads(_geom.ExportToJson())
-                                _features.append(_fj)
-                            _ds_shp = None
-                            if _features:
-                                _bounds = [[_min_lat, _min_lon], [_max_lat, _max_lon]]
-
-                        if _features:
-                            # Détecter les champs disponibles pour le tooltip
-                            _props = _features[0].get("properties", {}) if _features else {}
-                            _tip_fields = [k for k in _props if k and k.lower() not in ("fid","id","dn")][:3]
-                            # Capturer les valeurs pour la closure
-                            _fc, _bc, _fo = _zi_color, _zi_border, _zi_opacity
-                            folium.GeoJson(
-                                {"type": "FeatureCollection", "features": _features},
-                                name="🌊 Zones inondées",
-                                style_function=lambda x, fc=_fc, bc=_bc, fo=_fo: {
-                                    "fillColor":   fc,
-                                    "color":       bc,
-                                    "weight":      1.5,
-                                    "fillOpacity": fo,
-                                },
-                                tooltip=folium.GeoJsonTooltip(
-                                    fields=_tip_fields, sticky=False,
-                                ) if _tip_fields else None,
-                            ).add_to(_m)
-                            if _bounds:
-                                _m.fit_bounds(_bounds)
-                    except Exception as _map_err:
-                        st.caption(f"⚠️ Couche vecteur indisponible : {_map_err}")
+                        name="🔵 Zone d'étude").add_to(_m)
 
                 folium.LayerControl(collapsed=False, position="topright").add_to(_m)
-                st_folium(_m, width=None, height=520, returned_objects=[], use_container_width=True)
+                _map_out = st_folium(
+                    _m, width=None, height=560,
+                    returned_objects=["last_object_clicked"],
+                    use_container_width=True,
+                )
 
-                st.divider()
+                # ── Clic → point-in-polygon → toggle sélection ─────────
+                # last_object_clicked retourne {"lat":..,"lng":..} — on fait PIP avec shapely
+                _cur_click = (_map_out or {}).get("last_object_clicked")
+                _prev_click = st.session_state.get(_click_key)
+                if _cur_click and _cur_click != _prev_click and _features:
+                    _clat = _cur_click.get("lat")
+                    _clng = _cur_click.get("lng")
+                    if _clat is not None and _clng is not None:
+                        try:
+                            from shapely.geometry import Point as _Pt, shape as _shape
+                            _pt = _Pt(_clng, _clat)
+                            _hit = None
+                            for _ft in _features:
+                                try:
+                                    if _shape(_ft["geometry"]).contains(_pt):
+                                        _hit = int(_ft["properties"]["_fid"])
+                                        break
+                                except Exception:
+                                    pass
+                            if _hit is not None:
+                                if _hit in _sel_fids:
+                                    _sel_fids.discard(_hit)
+                                else:
+                                    _sel_fids.add(_hit)
+                                st.session_state[_sel_key]   = list(_sel_fids)
+                                st.session_state[_click_key] = _cur_click
+                                st.rerun()
+                            else:
+                                st.session_state[_click_key] = _cur_click
+                        except ImportError:
+                            st.session_state[_click_key] = _cur_click
+
+            # ── Tableau d'édition ───────────────────────────────────────
+            st.markdown("#### ✏️ Sélection et suppression de polygones")
+
+            if _features:
+                import pandas as _pde
+                _rows = []
+                for _ft in _features:
+                    _p = _ft["properties"]
+                    _rows.append({
+                        "🗑️ Supprimer": int(_p["_fid"]) in _sel_fids,
+                        "ID": int(_p["_fid"]),
+                        **{k: v for k, v in _p.items() if k != "_fid"},
+                    })
+                _df_tbl = _pde.DataFrame(_rows)
+                _edited_tbl = st.data_editor(
+                    _df_tbl,
+                    column_config={"🗑️ Supprimer": st.column_config.CheckboxColumn(
+                        "🗑️ Supprimer", help="Cocher pour marquer ce polygone à supprimer",
+                        width="small")},
+                    disabled=[c for c in _df_tbl.columns if c != "🗑️ Supprimer"],
+                    hide_index=True,
+                    use_container_width=True,
+                    key=f"tbl_{selected}",
+                )
+                _new_sel = set(int(r["ID"]) for _, r in _edited_tbl.iterrows() if r["🗑️ Supprimer"])
+                if _new_sel != _sel_fids:
+                    st.session_state[_sel_key] = list(_new_sel)
+                    st.rerun()
+
+                _nb_zi = len(_features)
+                _nb_sel = len(_sel_fids)
+
+                if _nb_sel > 0 or _is_edited:
+                    _edited_badge = ' · <span style="color:#66bb6a">Version éditée active</span>' if _is_edited else ""
+                    st.markdown(
+                        f"<div style='background:#1a2a3a;border-left:4px solid #ff5722;"
+                        f"padding:10px 16px;border-radius:4px;margin:8px 0'>"
+                        f"<b style='color:#ff7043'>🔴 {_nb_sel} polygone(s) marqué(s) pour suppression</b>"
+                        f"<span style='color:#90a4ae;font-size:.85em'> sur {_nb_zi} total"
+                        f"{_edited_badge}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    _ea, _eb, _ec, _ed = st.columns([3, 2, 2, 2])
+                    with _ea:
+                        if _nb_sel > 0 and st.button(
+                                "🗑️ Supprimer et recalculer les statistiques",
+                                type="primary", use_container_width=True,
+                                key=f"del_{selected}"):
+                            try:
+                                import geopandas as _gpd2
+                                _gdf_e = _gpd2.read_file(_zi_shp_map).reset_index(drop=True)
+                                _gdf_e = _gdf_e[~_gdf_e.index.isin(_sel_fids)].copy()
+                                _edit_out = _zi_shp_orig.replace(".shp","_edited.shp")
+                                _gdf_e.to_file(_edit_out)
+                                st.session_state[_edit_key]  = _edit_out
+                                st.session_state[_sel_key]   = []
+                                st.session_state[_click_key] = None
+                                _load_zi_geojson.clear()
+                                if csv_path:
+                                    _ecsvp = csv_path.replace(".csv","_edited.csv")
+                                    _ok, _res = _do_recompute(_edit_out, _ecsvp)
+                                    if _ok:
+                                        job.results["stats_csv"] = _ecsvp
+                                        job._save_state()
+                                        st.success(f"✅ {_nb_sel} polygone(s) supprimé(s) — statistiques recalculées")
+                                    else:
+                                        st.warning(f"Polygones supprimés mais recalcul impossible : {_res}")
+                                st.rerun()
+                            except Exception as _ee:
+                                st.error(f"Erreur : {_ee}")
+                    with _eb:
+                        if _nb_sel > 0 and st.button("↩️ Tout désélectionner",
+                                use_container_width=True, key=f"desel_{selected}"):
+                            st.session_state[_sel_key]   = []
+                            st.session_state[_click_key] = None
+                            st.rerun()
+                    with _ec:
+                        if _is_edited and st.button("🔄 Restaurer original",
+                                use_container_width=True, key=f"rst_{selected}"):
+                            st.session_state.pop(_edit_key, None)
+                            st.session_state[_sel_key]   = []
+                            st.session_state[_click_key] = None
+                            _load_zi_geojson.clear()
+                            _orig_csv = csv_path
+                            if "_edited" in csv_path:
+                                _orig_csv = csv_path.replace("_edited","")
+                            if os.path.exists(_orig_csv):
+                                job.results["stats_csv"] = _orig_csv
+                                job._save_state()
+                            st.rerun()
+                    with _ed:
+                        if _is_edited:
+                            try:
+                                import geopandas as _gpd3, tempfile, shutil, zipfile as _zfl
+                                _io3 = io.BytesIO()
+                                _tmp3 = tempfile.mkdtemp()
+                                _gpd3.read_file(st.session_state[_edit_key]).to_crs(epsg=4326)\
+                                     .to_file(os.path.join(_tmp3,"ZI_edited.shp"))
+                                with _zfl.ZipFile(_io3,"w",_zfl.ZIP_DEFLATED) as _z3:
+                                    for _ex3 in [".shp",".shx",".dbf",".prj",".cpg"]:
+                                        _fp3 = os.path.join(_tmp3, f"ZI_edited{_ex3}")
+                                        if os.path.exists(_fp3): _z3.write(_fp3, f"ZI_edited{_ex3}")
+                                shutil.rmtree(_tmp3, ignore_errors=True)
+                                _io3.seek(0)
+                                st.download_button("📥 SHP édité",_io3.getvalue(),
+                                    f"ZI_edite_{selected[:8]}.zip","application/zip",
+                                    use_container_width=True, key=f"dl_edit_{selected}")
+                            except Exception:
+                                pass
+            else:
+                st.caption("Aucun polygone ZI disponible pour ce traitement.")
+
+            st.divider()
 
             # ── Tableau + filtres ────────────────────────────
             if not df_stats.empty:
